@@ -22,8 +22,8 @@
 <h2>Kies hoe je wilt werken</h2>
 <p class="muted">De lokale testmodus bewaart gegevens uitsluitend in deze browser. De gezinsmodus gebruikt een gedeelde, afgeschermde database.</p>
 <div class="actions"><button id="local">Lokale test starten</button></div>
-<details id="cloud"><summary>Gezinsmodus (tijdelijk uitgeschakeld)</summary>
-<p class="notice warn">Deze versie test het nieuwe dossier en fotoarchief lokaal. Gedeelde opslag wordt pas geactiveerd na aanpassing en controle van de database.</p><form id="login" hidden>
+<details id="cloud"><summary>Gezinsmodus (testomgeving)</summary>
+<p class="notice warn">Dit is een ontwikkelversie. Gebruik alleen een apart Supabase-testproject en fictieve facturen. De lokale facturen worden niet automatisch geïmporteerd.</p><form id="login">
 <label>Supabase project-URL<input id="url" type="url" required placeholder="https://…supabase.co" autocomplete="off"></label>
 <label>Publieke publishable / anon key<input id="key" required autocomplete="off" placeholder="sb_publishable_… of anon JWT"></label>
 <small>Gebruik nooit een secret- of service_role-key. Configuratie wordt op dit toestel onthouden.</small>
@@ -84,7 +84,7 @@
 <div class="actions" id="localTools" hidden><button id="clearLocal" class="danger">Lokale testgegevens wissen</button></div>
 </section>
 </div>
-<small>FactuurCheck · v0.4.0 · Geen automatische bankcontrole. Gebruik testgegevens tot je de werking hebt gecontroleerd.</small>
+<small>FactuurCheck · v0.5.0 · Geen automatische bankcontrole. Gebruik testgegevens tot je de werking hebt gecontroleerd.</small>
 </main><dialog id="photoDialog"><button id="closePhoto">Foto sluiten</button><img id="fullPhoto" alt="Originele factuur op volledige grootte"></dialog>
 <script type="module" src="./app.mjs?v=0.4.0"></script>
 </body></html>
