@@ -38,13 +38,16 @@ function datesIn(s){
 function amountsIn(s,allowWhole=false){
  // Do not combine independent columns into a single monetary value.
  const re=/(?<![\w/.-])(?:\d{1,3}(?:[. ,']\d{3})+|\d+)[,.]\d{2}(?![\d%/.-])/g;
- const out=[...s.matchAll(re)].map(m=>amount(m[0].replace(/'/g,''))).filter(Boolean);
+ const normalized=s.replace(/(\d)\s*([,.])\s*(\d{2})(?!\d)/g,'$1$2$3').replace(/(\d+)[,.](?:-|–)(?!\d)/g,'$1,00');
+ const out=[...normalized.matchAll(re)].map(m=>amount(m[0].replace(/'/g,''))).filter(Boolean);
+ // A decimal with one digit is common on printed payment notices.
+ if(!out.length)for(const m of normalized.matchAll(/(?<![\w/.-])(\d+)[,.](\d)(?![\d%/.-])/g)){const v=amount(m[1]+','+m[2]+'0');if(v)out.push(v)}
  if(!out.length&&allowWhole){
-   for(const m of s.matchAll(/(?:€|EUR)\s*(\d+)(?![\d.,])|(?<![\d.,])(\d+)\s*(?:€|EUR)/gi)){const v=amount(m[1]||m[2]);if(v)out.push(v)}
+   for(const m of normalized.matchAll(/(?:€|EUR|euro)\s*(\d+)(?![\d.,])|(?<![\d.,])(\d+)\s*(?:€|EUR|euro)/gi)){const v=amount(m[1]||m[2]);if(v)out.push(v)}
  }
  return out;
 }
-const invoiceLabel=/(?:\bfactuur\s*(?:nummer|n[uú]mmer|nr\.?|n[°ºo]|#)|\bfactuurnr\.?|\binvoice\s*(?:number|no\.?|nr\.?|n[°º]|#)|\b(?:n[°ºo]\.?|numero|numéro)\s*(?:de\s+(?:la\s+)?)?facture|\bfacture\s*(?:n[°ºo]\.?|numero|numéro|#)|\bfactuur\s*#|\brekeningnummer\s+factuur)/i;
+const invoiceLabel=/(?:\bfactuur\s*(?:nummer|n[uú]mmer|nr\.?|n[°ºo]|#)|\bfactuurnr\.?|\binvoice\s*(?:number|no\.?|nr\.?|n[°º]|#)|\b(?:n[°ºo]\.?|numero|numéro)\s*(?:de\s+(?:la\s+)?)?facture|\bfacture\s*(?:n[°ºo]\.?|numero|numéro|#)|\bfactuur\s*#|\brekeningnummer\s+factuur|\b(?:aanslagbiljet|aanslag|retributie|dossier|proces.verbaal|pv|kenmerk|kohierartikel|artikelnummer|betalingskenmerk)\s*(?:nummer|nr\.?|n[°ºo]|#)?\s*:|\b(?:kohierartikel|dossiernummer|aanslagnummer|retributienummer|pv.nummer|kenmerk)\b)/i;
 const dateLabel=/\b(?:factuur\s*datum|datum\s+(?:van\s+de\s+)?factuur|invoice\s*date|date\s+(?:de\s+(?:la\s+)?)?facture|date\s+d['’]emission|date\s+d['’]émission|uitgiftedatum|date\s+of\s+issue)\b/i;
 const wrongDate=/verval|uiterste|betaal(?:datum|baar)|due\s*date|echeance|échéance|periode|leveringsdatum|delivery|payment\s+date/i;
 const otherLabel=/(?:klant(?:nummer|nr)?|customer|client|numero de client|contract|btw|vat|tva|iban|bic|datum|date|verval|totaal|total|bedrag|amount|mededeling|communication|reference|referentie|order|bestel|rekening|account)\b/i;
@@ -66,6 +69,15 @@ function invoiceToken(s){
  if(!/\d/.test(x)||x.length>60||datesIn(x).length||reference(x)||iban(x)||otherLabel.test(x))return '';
  return x;
 }
+const publicSuppliers=[
+ ['Stad Antwerpen',/\bstad\s+antw(?:erpen|re?pen|rp?en)\b|\bville\s+d['’]anvers\b|\bantwerpen\.be\b|\b(?:stad\s+)?antwerpen\s*[-:]\s*(?:financien|belastingen|retributies)/i],
+ ['Vlaamse Belastingdienst',/\bvlaamse\s+belastingdienst\b|\bvlabel\b/i],
+ ['FOD Financiën',/\bfod\s+financi[eë]n\b|\bspf\s+finances\b|\bmyminfin\b/i],
+ ['Vlaamse overheid',/\bvlaamse\s+overheid\b/i],
+ ['Federale Politie',/\bfederale\s+politie\b|\bpolice\s+federale\b/i],
+ ['De Lijn',/\bde\s+lijn\b/i],['NMBS',/\bnmbs\b|\bsncb\b/i],
+ ['ZAS',/\bziekenhuis\s+aan\s+de\s+stroom\b|\bzas\b/i],['UZA',/\buniversitair\s+ziekenhuis\s+antwerpen\b|\buza\b/i]
+];
 const knownSuppliers=[
  ['ENGIE',/\bengie\b/i],['Luminus',/\bluminus\b/i],['Telenet',/\btelenet\b/i],['Proximus',/\bproximus\b/i],['Orange',/\borange\s+(?:belgium|belgique)\b/i],['BASE',/\bbase\s+(?:company|factuur|invoice)\b/i],
  ['De Watergroep',/\bde\s+watergroep\b/i],['water-link',/\bwater[\s-]*link\b/i],['Pidpa',/\bpidpa\b/i],['Farys',/\bfarys\b/i],['Fluvius',/\bfluvius\b/i],['Eneco',/\beneco\b/i],['TotalEnergies',/\btotal\s*energies\b/i],['VIVAQUA',/\bvivaqua\b/i],['Helan',/\bhelan\b/i],['Solidaris',/\bsolidaris\b/i],['bpost',/\bbpost\b/i]
@@ -147,7 +159,7 @@ export function extractDetailed(raw){
          }
        }
      }else if(/(?:€|\bEUR\b)/i.test(l)&&!wrongDate.test(l)&&!/\b(?:btw|tva|vat|korting|discount)\b/i.test(l)){
-       amountsIn(l,true).forEach(v=>add('amount_cents',v,28,l));
+       amountsIn(l,true).forEach(v=>add('amount_cents',v,48,l));
      }
    }
    const supplierLabel=l.match(/^(?:leverancier|supplier|fournisseur|afzender|verkoper|vendeur|seller|uitgereikt door|issued by|emis par|émis par)\s*(?::|=|-)?\s*(.*)$/i);
@@ -155,8 +167,12 @@ export function extractDetailed(raw){
    const customerContext=/^(?:klant|customer|client|destinataire|bill to|ship to|facturatieadres|leveringsadres|aan|adresse de facturation)\s*[:#-]?\s*$/i.test(prev)||/^(?:klant|customer|client|destinataire|bill to|ship to|facturatieadres|leveringsadres|aan)\s*[:#]/i.test(l);
    if(!customerContext&&i<25){
      if(/\b(?:BVBA|BV|NV|SRL|SA|SPRL|ASBL|VZW|GMBH|LTD|SAS|VOF|CV|SC|CVBA)\.?(?:\s*$)/i.test(l)&&supplierLike(l))add('supplier',l,91,l);
+     for(const [brand,re] of publicSuppliers)if(re.test(l)&&!/\b(?:klant|customer|client|bill to|facturatieadres|leveringsadres)\b/i.test(l))add('supplier',brand,i<15?99:86,l);
+     const authority=l.match(/^(?:stad|gemeente|provincie|ocmw|politiezone|administration communale|commune de|ville de|ziekenhuis|h[oô]pital|mutualiteit|ziekenfonds|fod|spf)\s+[\p{L}][\p{L} '\-]{1,75}$/iu);
+     if(authority&&supplierLike(l))add('supplier',l,86,l);
+     if(i<5&&/^antwerpen$/i.test(l))add('supplier','Stad Antwerpen',77,l);
      for(const [brand,re] of knownSuppliers)if(re.test(l)&&!/\b(?:klant|customer|client|bill to|facturatieadres|leveringsadres)\b/i.test(l))add('supplier',brand,i<10?88:73,l);
-     if(i<4&&supplierLike(l)&&!/[.:;]/.test(l)&&l.split(/\s+/).length<=6)add('supplier',l,36-i*3,l);
+     if(i<6&&supplierLike(l)&&!/[.:;]/.test(l)&&l.split(/\s+/).length<=7&&!/\b(?:herinnering|aanmaning|aanslagbiljet|retributie|betalingsverzoek|ingebrekestelling|rappel|reminder|incasso|mededeling)\b/i.test(l))add('supplier',l,44-i*3,l);
    }
  }
  // Structured reference split across lines in a marked payment block.
@@ -201,4 +217,63 @@ export function mergeExtractions(results){
 export function extract(raw){return extractDetailed(raw).fields}
 
 
-export function match(a,b){const r=reference(a.reference),s=reference(b.reference), ai=iban(a.iban),bi=iban(b.iban);const supplier=norm(a.supplier)&&norm(a.supplier)===norm(b.supplier);const account=ai&&ai===bi;const number=norm(a.invoice_no)&&norm(a.invoice_no)===norm(b.invoice_no);if(r&&r===s||number&&(supplier||account))return 'exact';if(a.amount_cents===b.amount_cents&&(supplier||account)&&(!a.invoice_date||!b.invoice_date||Math.abs(Date.parse(a.invoice_date)-Date.parse(b.invoice_date))<=31*86400000))return 'possible';return ''}
+
+
+// Additional identifiers are evidence, not proof of payment.
+export function documentInfo(raw){
+ const text=String(raw||'');const p=plain(text);
+ let document_type='invoice';
+ if(/\b(?:creditnota|credit\s+note|avoir|creditfactuur)\b/.test(p))document_type='credit';
+ else if(/\b(?:incasso|gerechtsdeurwaarder|huissier|collection\s+notice|recouvrement|ingebrekestelling|dwangbevel|laatste\s+aanmaning)\b/.test(p))document_type='collection';
+ else if(/\b(?:herinnering|aanmaning|rappel|relance|reminder|overdue\s+notice|betalingsherinnering)\b/.test(p))document_type='reminder';
+ const related=[];
+ for(const m of text.matchAll(/(?:oorspronkelijk(?:e)?\s+factuur(?:nummer|nr\.?)?|originele\s+factuur(?:nummer)?|original\s+invoice(?:\s+number)?|facture\s+(?:initiale|originale)|dossier(?:nummer|nr\.?)|kohierartikel|aanslagnummer|retributienummer|betalingskenmerk|ons\s+kenmerk|uw\s+kenmerk|reference\s+du\s+dossier|référence\s+du\s+dossier|case\s+number)\s*[:#-]?\s*([A-Z0-9][A-Z0-9./_-]{2,60})/gi)){
+   if(/\d/.test(m[1])&&!datesIn(m[1]).length)related.push(m[1]);
+ }
+ const original=text.match(/(?:oorspronkelijk(?:e)?\s+(?:factuur)?bedrag|hoofdsom|principal|montant\s+initial|original\s+amount)\s*[:€ ]*\s*([0-9., ]+[,.]\d{2})/i);
+ const fees=text.match(/(?:herinneringskosten|aanmaningskosten|administratiekosten|kosten\s+herinnering|frais\s+de\s+rappel|late\s+fee)\s*[:€ ]*\s*([0-9., ]+[,.]\d{2})/i);
+ return {document_type,related_ids:[...new Set(related)].slice(0,12).join(' / '),original_cents:original?amount(original[1]):null,fee_cents:fees?amount(fees[1]):null};
+}
+export function supplierKey(s){
+ const n=norm(s);if(/^(?:STAD)?ANTW(?:ERPEN|REPEN|RPEN)$/.test(n)||n==='VILLEDANVERS')return 'STADANTWERPEN';
+ if(n==='VLABEL'||n==='VLAAMSEBELASTINGDIENST')return 'VLABEL';
+ if(n==='FODFINANCIEN'||n==='SPFFINANCES'||n==='MYMINFIN')return 'FODFINANCIEN';
+ return n.replace(/(?:BVBA|SRL|SPRL|GMBH|LTD|NV|BV|VZW|ASBL)$/,'');
+}
+function ids(v){return [...new Set([v.invoice_no,...String(v.related_ids||'').split(/\s+\/\s+|[;\n]/)].map(norm).filter(x=>x.length>=3))]}
+function similarId(a,b){
+ if(a.length<7||b.length<7||Math.abs(a.length-b.length)>1)return false;
+ let i=0,j=0,d=0;while(i<a.length&&j<b.length){if(a[i]===b[j]){i++;j++;continue}if(++d>1)return false;if(a.length>b.length)i++;else if(b.length>a.length)j++;else{i++;j++}}
+ return d+(a.length-i)+(b.length-j)<=1;
+}
+export function compareInvoice(a,b){
+ const ref=reference(a.reference),other=reference(b.reference), ai=iban(a.iban),bi=iban(b.iban);
+ const supplier=!!supplierKey(a.supplier)&&supplierKey(a.supplier)===supplierKey(b.supplier);
+ const account=!!ai&&ai===bi;const context=supplier||account;
+ const an=ids(a),bn=ids(b),sameId=an.some(x=>bn.includes(x));
+ const sameNo=!!norm(a.invoice_no)&&norm(a.invoice_no)===norm(b.invoice_no);
+ const reminder=['reminder','collection','credit'].includes(a.document_type)||['reminder','collection','credit'].includes(b.document_type);
+ const sameAmount=a.amount_cents===b.amount_cents;
+ const dateGap=a.invoice_date&&b.invoice_date?Math.abs(Date.parse(a.invoice_date)-Date.parse(b.invoice_date))/86400000:null;
+ const photo=!!a.photo_hash&&a.photo_hash===b.photo_hash;
+ const reasons=[];
+ if(photo)reasons.push('Identieke fotobestanden');
+ if(ref&&ref===other)reasons.push('Dezelfde gestructureerde mededeling');
+ if(sameId)reasons.push(sameNo?'Hetzelfde factuurnummer':'Gelijk dossier- of oorspronkelijk factuurnummer');
+ if(supplier)reasons.push('Dezelfde leverancier');
+ if(account)reasons.push('Dezelfde IBAN');
+ if(sameAmount)reasons.push('Hetzelfde bedrag');
+ if(reminder)reasons.push('Herinnering, incasso of creditnota');
+ const exact=photo||(ref&&ref===other&&context)||(sameNo&&context);
+ if(exact){
+   if(!sameAmount||a.document_type==='credit'||(reminder&&a.document_type==='collection')||(dateGap!==null&&dateGap>370&&!photo)|| (ref&&other&&ref!==other&&!photo))return {kind:'changed',reasons:[...reasons,'Bedrag of documentkenmerken gewijzigd']};
+   return {kind:'exact',reasons};
+ }
+ if(ref&&ref===other||sameId||(context&&an.some(x=>bn.some(y=>similarId(x,y))))||
+   (context&&reminder)||(context&&sameAmount&&(dateGap===null||dateGap<=31))||
+   (context&&a.original_cents===b.amount_cents)||(context&&b.original_cents===a.amount_cents)){
+   return {kind:'possible',reasons:reasons.length?reasons:['Gelijkaardig identificatienummer']};
+ }
+ return {kind:'',reasons:[]};
+}
+export function match(a,b){return compareInvoice(a,b).kind}
