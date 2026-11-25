@@ -1,93 +1,50 @@
-# FactuurCheck — v0.2.0
+# FactuurCheck — v0.3.0
 
-Mobiele webapp voor Belgische gezinsfacturen. OCR (Nederlands, Frans, Engels), handmatige controle, dubbele-factuurwaarschuwingen, geschiedenis en betaalreservering. Geen automatische bankbetaling of bankkoppeling.
+Deze versie test het vernieuwde lokale factuurdossier met origineel fotoarchief, herkenning van overheidsdocumenten, herinneringen en incasso. Geen automatische bankcontrole.
 
-## Snel testen (zonder backend)
+## Testen
 
-1. Open GitHub → Settings → Pages van deze repository.
-2. Kies **Deploy from a branch**, branch **main**, map **/(root)** en Save.
-3. Open de URL die GitHub Pages toont (normaal https://muwattah.github.io/facturatie/).
-4. Kies Lokale test starten. Gebruik fictieve gegevens.
-5. Je kunt tekst plakken onder Herkende tekst bekijken of plakken. Bijvoorbeeld:
+Open https://muwattah.github.io/facturatie/?v=0.3.0 en controleer het versienummer onderaan. Kies Lokale test starten. Gebruik fictieve facturen en een foto: de foto is verplicht bij registratie. Tekst mag ook handmatig geplakt worden om de parser te testen, maar registratie vereist een afbeelding.
 
-       Factuurnummer: TEST-001
-       Factuurdatum: 26/11/2026
-       Totaal te betalen EUR 124,50
-       +++123/4567/89002+++
+1. Scan een factuur en bevestig de herkende gegevens. Foto en gegevens staan naast elkaar op brede schermen, onder elkaar op kleine schermen.
+2. Registreer, reserveer en bevestig alleen een fictieve betaling.
+3. Scan dezelfde foto opnieuw. De app houdt hetzelfde dossier en bewaart niet opnieuw hetzelfde bestand.
+4. Scan een nieuwe foto van een herinnering met gewijzigd bedrag. Een sterke overeenkomst leidt naar het bestaande dossier met controle vereist.
+5. Bij een mogelijke overeenkomst kun je de oorspronkelijke foto bekijken en handmatig koppelen. Alleen als het aantoonbaar een andere schuld is, mag je apart registreren.
+6. Controleer bij een herinnering het werkelijke openstaande saldo bij de bank én leverancier. Vul 0 in indien niets meer openstaat of het werkelijk verschuldigde bedrag indien nog iets openstaat. Het oude document en de eerdere saldocontrole blijven in het dossier.
+7. Herlaad en open de oorspronkelijke foto's in de geschiedenis. Oudere registraties uit v0.2 hebben nog geen foto; scan ze opnieuw om ze toe te voegen.
 
-   Vul leverancier Testbedrijf in, controleer de velden en registreer.
-6. Kies Ik ga betalen en daarna Betaling bevestigen. Scan of plak opnieuw dezelfde factuur: AL BETAALD.
-7. Test ook met een echte foto van een zelfgemaakte fictieve factuur.
+## Herkenning
 
-Lokaal starten kan ook met Python: voer vanuit de repo **python -m http.server 8000** uit en open http://localhost:8000. Open index.html niet rechtstreeks met file://.
+Nederlands, Frans, Engels; maximaal drie lokale OCR-rondes. Ondersteunt onder meer Stad Antwerpen, Vlaamse Belastingdienst, FOD Financiën, gemeenten, OCMW's, ziekenhuizen en reguliere leveranciers. Bedragen worden ook gezocht bij verschuldigd bedrag, openstaand saldo, aanslagbedrag en losse eurobedragen. Zwakke of tegenstrijdige herkenning blijft te controleren. Dossiernummers, kohierartikelen, oorspronkelijke factuurnummers en betalingskenmerken worden als aanvullende aanwijzingen opgeslagen. Controleer alle velden, inclusief documenttype en eventuele herinneringskosten.
 
-Lokale opslag is per browser/toestel, niet gedeeld, niet versleuteld door deze app, en kan verloren gaan bij het wissen van browsergegevens. Het is geen betrouwbare gezinsadministratie.
+## Duplicaat- en herinneringscontrole
 
-## Gezinsmodus (Supabase)
+- Vergelijk SHA-256 van het originele fotobestand, gestructureerde mededeling, factuurnummer, leverancier (inclusief enkele naamvarianten), IBAN, dossierkenmerken, bedrag, datum, oorspronkelijk bedrag en documenttype. Vergelijk ook eerdere documenten in het dossier.
+- Een sterk overeenkomend document met een gewijzigd bedrag, conflicterende referentie of andere risicokenmerken zet het dossier op controle. Een andere foto van dezelfde factuur wordt naast de oorspronkelijke foto bewaard.
+- Gelijk dossierkenmerk, bijna gelijk identificatienummer of gelijk bedrag en leverancier zijn mogelijke overeenkomsten, geen bewijs van betaling.
+- Een herinnering, creditnota of incassodocument zonder sterke overeenkomst wordt nooit meteen als gewone betaalbare factuur vrijgegeven. Controleer en koppel zo nodig handmatig.
+- Hergebruikte identifiers, onherkende gegevens, nieuw dossiernummer en een andere schuldeiser kunnen leiden tot gemiste of onterechte matches. Controleer altijd de bank en leverancier.
+- De app berekent geen automatisch te betalen verschil. Een hoger bedrag kan bijvoorbeeld een herinnering van vóór je betaling zijn. Bevestig het werkelijke openstaande saldo.
+- Geen bankintegratie of automatische verificatie. De lokale status is geen bankbewijs.
 
-Geen eigen draaiende server nodig. Maak zelf een Supabase-project aan op https://supabase.com/dashboard (bij voorkeur een EU-regio). Controleer de actuele abonnementslimieten. Gebruik een nieuw project voor deze test.
+## Opslag en privacy
 
-1. Open SQL Editor, plak de volledige inhoud van **supabase/schema.sql** en voer één keer uit.
-2. Maak in Authentication → Users voor ieder gezinslid een eigen gebruiker (e-mail en wachtwoord). Schakel publieke aanmelding uit indien niet nodig. Bevestig de accounts via de dashboardoptie indien beschikbaar.
-3. Maak in SQL Editor een huishouden:
+De originele foto wordt als Blob met de originele bytes opgeslagen in IndexedDB; niet als verkleinde OCR-afbeelding. De factuurgegevens, documentverwijzingen en saldocontroles blijven in de bestaande lokale browseropslag. Foto's worden opgeslagen voordat een nieuwe registratie wordt vastgelegd; bij een opslagfout wordt geen nieuwe registratie gemeld. Een onbesliste mogelijke match is nog geen opgeslagen registratie. De app verwijdert het archief niet bij het herladen. Browsergegevens wissen, private browsing, opslagquota, toestelverlies of automatische browseropruiming kunnen wel gegevensverlies veroorzaken. Geen automatische export of back-up. Wis alleen bewust via de lokale testknop. Gebruik vooralsnog fictieve gegevens.
 
-       insert into public.households(name) values ('Ons gezin') returning id;
+De broncode is openbaar, maar de foto's worden niet naar GitHub of een OCR-server gestuurd. De OCR-bibliotheken en taalmodellen worden via internet geladen. De foto's blijven op het toestel. Gebruik HTTPS. Lokale data wordt niet door de app versleuteld.
 
-4. Kopieer de teruggegeven huishoud-UUID. Kopieer per gezinslid de gebruikers-UUID uit Authentication → Users. Voer voor elk gezinslid de volgende SQL uit met de echte UUID's:
+## Gezinsmodus
 
-       insert into public.household_members(user_id,household_id)
-       values ('USER_UUID','HOUSEHOLD_UUID');
+Tijdelijk uitgeschakeld in v0.3.0. Het eerdere Supabase-schema (supabase/schema.sql) ondersteunt nog geen fotodossiers, openstaand-saldocontrole of gekoppelde herinneringen. Activeer het niet voor deze versie. Een veilige migratie met privé-opslag, huishoudgebonden toegangsrechten, server-side vergelijking en atomaire betaalstatus moet nog worden geïmplementeerd en getest. De app valt niet stilzwijgend terug op lokale opslag wanneer je een gedeeld account probeert te gebruiken.
 
-5. Kopieer de Project URL en publieke publishable key (of legacy anon key) vanuit het Supabase-dashboard. Gebruik **NOOIT** een service_role of secret key in de app of op GitHub.
-6. Open FactuurCheck → Gezinsmodus instellen / inloggen. Vul URL, publieke key, eigen e-mail en wachtwoord in. Herhaal op elk toestel.
-7. De app onthoudt de publieke configuratie lokaal; na herladen opnieuw inloggen. Testfacturen uit de lokale modus worden niet geïmporteerd.
+## Technisch en testen
 
-De app bewaart alleen bevestigde factuurvelden en betaalstatus. Foto en volledige OCR-tekst worden niet naar de database gestuurd. OCR draait in de browser, met bibliotheken en taalmodellen die via internet worden geladen. Gebruik de app alleen via HTTPS; de code is openbaar maar de database is afgeschermd door login en Row Level Security.
+- core.mjs: OCR-parser, identificatie en vergelijkingsregels
+- archive.mjs: dossierlogica, saldo-audit en IndexedDB-fotoarchief
+- app.mjs: interface, foto-opslag en betaalworkflow
+- index.html: mobiele interface en fotovergelijking
+- tests/core.test.mjs en tests/archive.test.mjs: regressietests
+- node --test tests/*.test.mjs
 
-## Betalingsregels
-
-- Exacte overeenkomst: geldige gestructureerde mededeling of genormaliseerd factuurnummer bij dezelfde leverancier of IBAN. Bestaande registratie wordt getoond en een tweede registratie geblokkeerd.
-- Mogelijke overeenkomst: dezelfde leverancier/rekening en bedrag met datumverschil maximaal 31 dagen (of ontbrekende datum). Alleen na controle kun je toch registreren.
-- Nieuwe factuur betekent uitsluitend geen overeenkomst in dit archief. Controleer altijd of ze al betaald is bij de bank.
-- Reserveer eerst via Ik ga betalen. Betaal alleen na een bevestigde reservering. Markeer vervolgens betaald na de bankbetaling.
-- Als een oud archiefstuk al betaald is, registreer het en kies Al eerder betaald, zonder nog eens geld over te schrijven. Controleer de bank. De geregistreerde bevestigingsdatum is de app-datum, niet de historische bankdatum.
-- Als OCR gegevens niet herkent, vul ze handmatig in. De app zoekt leverancierslabels, bedrijfsnamen en bekende leveranciers. De suggestie moet handmatig bevestigd worden. PDF's worden in deze versie niet rechtstreeks ondersteund.
-- Hergebruikte gestructureerde mededelingen en factuurnummers kunnen tot onterechte blokkades leiden. OCR-fouten of ontbrekende historische gegevens kunnen tot gemiste dubbele facturen leiden.
-- Alleen gezinsleden die de app vóór elke betaling gebruiken, profiteren van de reserveringscontrole. Er is geen automatische verificatie bij de bank.
-
-## Testplan
-
-| Test | Verwacht |
-|---|---|
-| Nieuwe factuur | Nog te betalen |
-| Zelfde factuur vóór betaling | Al geregistreerd |
-| Reserveer, scan opnieuw | Betaling bezig |
-| Bevestig betaling, scan opnieuw | Al betaald |
-| Andere leverancier, zelfde bedrag | Nieuwe factuur |
-| Zelfde leverancier/bedrag, ander nummer en nabije datum | Mogelijke dubbele factuur |
-| Ongeldig controlegetal of IBAN | Handmatige correctie vereist |
-| Herladen lokale modus | Registraties blijven bewaard |
-| Twee gezinsaccounts zelfde factuur tegelijk registreren | Eén registratie, tweede krijgt bestaande factuur |
-| Twee toestellen gelijktijdig reserveren | Eén reservering slaagt |
-| Account zonder huishoudlidmaatschap | Geen toegang |
-| Tweede huishouden | Geen toegang tot eerste huishouden |
-| Internet uit in gezinsmodus | Foutmelding; nooit stil overschakelen op lokaal |
-
-## Verbeterde OCR (v0.2.0)
-
-De scanner verwerkt de afbeelding lokaal in maximaal drie rondes: normale lay-out, contrastverbetering en zo nodig verspreide tekst. De herkenning gebruikt Nederlandstalige, Franstalige en Engelstalige labels, waarden op de volgende regel en gevalideerde IBAN/OGM-codes. Twijfelgevallen worden gemarkeerd; klik op een alternatief om het veld in te vullen. De ruwe tekst per scanronde is onder de scanner te bekijken. De app verzendt geen factuurfoto naar een externe OCR-dienst.
-
-Herkenning van alle velden is niet gegarandeerd: logo's zonder leesbare tekst, onscherpte, ongebruikelijke lay-outs of ontbrekende gegevens kunnen een handmatige correctie vereisen. De extra OCR-rondes kunnen de scan trager maken op oudere smartphones. De parser is getest met fictieve OCR-tekst, niet met de originele factuur van de gebruiker.
-
-## Technisch
-
-- index.html: mobiele UI
-- app.mjs: OCR, opslag, authenticatie, betaalworkflow
-- core.mjs: herkenning en vergelijking
-- supabase/schema.sql: gegevensmodel, RLS, beveiligde RPC's, atomaire registratie en statuswijziging
-- tests/core.test.mjs: unit tests; uitvoeren met **node --test tests/core.test.mjs**
-- manifest.webmanifest: beginschermmetadata; geen volledige offline PWA
-
-De databasefuncties serialiseren nieuwe registraties per huishouden en gebruiken een conditionele statuswijziging voor betaling. Er is geen automatisch vergrendelingsverval: bij afgebroken betaling moet iemand de status handmatig en na bankcontrole terugzetten. Alle gezinsleden kunnen status corrigeren; behandel ze als vertrouwde gebruikers.
-
-De eerste versie heeft nog geen end-to-end browsertest, live databasevalidatie, automatische export/back-up, PDF-import of bankintegratie. Test met fictieve facturen voor gebruik met echte data. Stel in Supabase een passende back-upstrategie in voor echte administratie.
+Bij de release zijn 41 automatische tests op de zuivere parser- en dossierlogica uitgevoerd; JavaScript-syntaxis en HTML-id's zijn gecontroleerd. Live camera-OCR, browseropslag en Supabase zijn niet end-to-end getest. Test op het doeltoestel vóór gebruik met echte facturen.
