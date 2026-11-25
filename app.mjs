@@ -1,8 +1,10 @@
-import {norm,reference,amount,iban,date,extractDetailed,mergeExtractions,documentInfo} from './core.mjs?v=0.3.0';
-import {documentLabels,decideRegistration,resolveReview,photoHash,savePhoto,loadPhoto,clearPhotos} from './archive.mjs?v=0.3.0';
+import {norm,reference,amount,iban,date,extractDetailed,mergeExtractions,documentInfo} from './core.mjs?v=0.4.0';
+import {documentLabels,decideRegistration,photoHash,savePhoto,loadPhoto,clearPhotos} from './archive.mjs?v=0.4.0';
+import {parseEpc,scanQR,dueDate,categoryFor,isPdf,readPDF,quality,localAI} from './scanner.mjs?v=0.4.0';
+import {openBalance,recordPayment,reversePayment,reconcile,dashboard} from './ledger.mjs?v=0.4.0';
 const $=id=>document.getElementById(id);
 const LOCAL='factuurcheck.local.v1', CONFIG='factuurcheck.config.v1';
-let mode='', client=null, items=[], file=null, previewUrl='', pending=null, busy=false, archiveUrls=[];
+let mode='', client=null, items=[], file=null, previewUrl='', pending=null, busy=false, archiveUrls=[],rotation=0;
 function clearArchiveUrls(){archiveUrls.forEach(URL.revokeObjectURL);archiveUrls=[]}
 const labels={unpaid:'Nog te betalen',paying:'Betaling bezig',paid:'Betaald'};
 const money=cents=>new Intl.NumberFormat('nl-BE',{style:'currency',currency:'EUR'}).format(cents/100);
@@ -66,8 +68,9 @@ function choose(f){
   $('raw').value='';$('invoiceForm').reset();$('ocrDetails').replaceChildren();$('matchDetails').replaceChildren();for(const k of Object.keys(fieldLabels))$(fieldId(k)).classList.remove('needs-review');notice('result');notice('scanMessage');
   if(previewUrl)URL.revokeObjectURL(previewUrl);previewUrl='';file=null;
   $('preview').hidden=true;$('preview').removeAttribute('src');
-  if(f){if(!f.type.startsWith('image/')||f.size>20*1024*1024){notice('scanMessage','Kies een afbeelding van maximaal 20 MB.','error')}
-    else{file=f;previewUrl=URL.createObjectURL(file);$('preview').src=previewUrl;$('preview').hidden=false;notice('scanMessage','Afbeelding klaar om uit te lezen.');}}
+  rotation=0;$('preview').style.transform='';$('openOriginal').hidden=true;$('qrDetails').replaceChildren();
+  if(f){if((!f.type.startsWith('image/')&&!isPdf(f))||f.size>20*1024*1024){notice('scanMessage','Kies een afbeelding of PDF van maximaal 20 MB.','error')}
+    else{file=f;previewUrl=URL.createObjectURL(file);$('openOriginal').href=previewUrl;$('openOriginal').hidden=false;if(!isPdf(f)){$('preview').src=previewUrl;$('preview').hidden=false;}notice('scanMessage','Document klaar om uit te lezen.');}}
   $('scan').disabled=!file;pending=null;$('override').hidden=true;$('matchDetails').replaceChildren();
 }
 $('camera').onchange=()=>{$('file').value='';choose($('camera').files[0])};
@@ -78,6 +81,7 @@ const fieldValue=(k,v)=>k==='amount_cents'?(v===null||v===''?'':(v/100).toFixed(
 const present=(k,v)=>k==='amount_cents'?money(v):v;
 function applyText(result=extractDetailed($('raw').value)){
   const {fields,details}=result;
+  $('due_date').value=dueDate($('raw').value);$('category').value=categoryFor(fields.supplier);
   const info=documentInfo($('raw').value);$('document_type').value=info.document_type;$('related_ids').value=info.related_ids;$('original_amount').value=fieldValue('amount_cents',info.original_cents);$('fee_amount').value=fieldValue('amount_cents',info.fee_cents);
   const panel=$('ocrDetails');panel.replaceChildren();
   let count=0;const uncertain=[],missing=[];
@@ -107,7 +111,7 @@ function applyText(result=extractDetailed($('raw').value)){
     +(uncertain.length?'\nExtra controleren: '+uncertain.join(', ')+'.':'');
   notice('scanMessage',msg,missing.length||uncertain.length?'warn':'good');
 }
-$('parse').onclick=()=>{if(!busy){const raw=$('raw').value;const chunks=raw.split(/^--- (?:Normale scan|Contrastscan|Verspreide tekst) ---\s*$/m).filter(t=>t.trim());applyText(chunks.length>1?mergeExtractions(chunks.map(extractDetailed)):extractDetailed(chunks[0]||raw));}};
+$('parse').onclick=()=>{if(!busy){const raw=$('raw').value;const chunks=raw.split(/^--- (?:Normale scan|Contrastscan|Verspreide tekst|PDF-pagina \d+|PDF OCR \d+) ---\s*$/m).filter(t=>t.trim());applyText(chunks.length>1?mergeExtractions(chunks.map(extractDetailed)):extractDetailed(chunks[0]||raw));}};
 async function decodeImage(blob){
   if(typeof createImageBitmap==='function'){
     try{return await createImageBitmap(blob)}catch{}
@@ -126,7 +130,8 @@ async function prepareImages(blob){
     const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(w*scale));canvas.height=Math.max(1,Math.round(h*scale));
     const ctx=canvas.getContext('2d',{willReadFrequently:true});
     if(!ctx)throw Error('Afbeeldingsverwerking is niet beschikbaar.');
-    ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,0,0,canvas.width,canvas.height);
+    if(rotation%180){const cw=canvas.width;canvas.width=canvas.height;canvas.height=cw;}
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.save();ctx.translate(canvas.width/2,canvas.height/2);ctx.rotate(rotation*Math.PI/180);ctx.drawImage(image,-w*scale/2,-h*scale/2,w*scale,h*scale);ctx.restore();
     const enhanced=document.createElement('canvas');enhanced.width=canvas.width;enhanced.height=canvas.height;
     const e=enhanced.getContext('2d',{willReadFrequently:true});if(!e)throw Error('Afbeeldingsverwerking is niet beschikbaar.');
     e.drawImage(canvas,0,0);
@@ -141,70 +146,95 @@ async function prepareImages(blob){
     return [canvas,enhanced];
   }finally{if(typeof image.close==='function')image.close()}
 }
+$('rotate').onclick=()=>{if(!file||isPdf(file))return;rotation=(rotation+90)%360;$('preview').style.transform='rotate('+rotation+'deg)';$('verified').checked=false;notice('scanMessage','Foto gedraaid. Scan opnieuw.','warn')};
+function addScanSuggestion(label,values){
+ const div=node('div',undefined,'ocr-field');div.append(node('strong',label));
+ for(const [k,v] of Object.entries(values)){
+   if(!v||!['supplier','invoice_no','invoice_date','amount_cents','reference','iban','due_date'].includes(k))continue;
+   const el=$(fieldId(k)),btn=node('button',String(present(k,v)),'secondary');btn.type='button';
+   btn.onclick=()=>{if(busy)return;el.value=fieldValue(k,v);el.classList.add('needs-review');$('verified').checked=false;pending=null;$('override').hidden=true;$('matchDetails').replaceChildren();notice('result')};
+   div.append(node('p',(fieldLabels[k]||'Vervaldatum')+': '),btn);
+ }
+ $('qrDetails').append(div);
+}
+$('ai').onclick=()=>run(async()=>{
+ if(!$('raw').value.trim())throw Error('Scan eerst een document of plak de OCR-tekst.');
+ notice('scanMessage','Lokale AI wordt voorbereid. Dit kan een modeldownload vereisen.');
+ const result=await localAI($('raw').value);addScanSuggestion('AI-voorstellen — controleer met origineel',result);
+ notice('scanMessage','AI-voorstellen toegevoegd. Klik alleen op waarden die overeenkomen met je document.','warn');
+},'scanMessage');
 $('scan').onclick=()=>run(async()=>{
-  if(!file)throw Error('Kies eerst een afbeelding.');
-  if(!window.Tesseract)throw Error('OCR-bibliotheek niet geladen. Controleer internet.');
-  $('progress').hidden=false;$('progress').value=0;notice('scanMessage','Afbeelding voorbereiden en OCR laden…');
-  let worker,images,step=0,passes=[],texts=[];
-  try{
-    images=await prepareImages(file);
-    worker=await window.Tesseract.createWorker(['nld','fra','eng'],1,{logger:m=>{
-      if(m.status==='recognizing text'){
-        $('progress').value=Math.min(0.99,(step+(m.progress||0))/3);
-        notice('scanMessage','Scanronde '+(step+1)+' van maximaal 3: tekst uitlezen…');
-      }
-    }});
-    async function recognize(image,psm,name){
-      await worker.setParameters({tessedit_pageseg_mode:String(psm),preserve_interword_spaces:'1'});
-      const r=await worker.recognize(image);
-      if(r.data.text.trim()){
-        texts.push({name,text:r.data.text});
-        passes.push(extractDetailed(r.data.text));
-      }
-      step++;
-    }
-    // Original layout first, then contrast-corrected image with automatic
-    // layout. Sparse text recovers text in boxes, logos and payment slips.
-    await recognize(images[0],3,'Normale scan');
-    await recognize(images[1],3,'Contrastscan');
-    let merged=mergeExtractions(passes);
-    if(Object.values(merged.details).some(x=>!x.value||x.weak||x.ambiguous)){
-      await recognize(images[1],11,'Verspreide tekst');
-      merged=mergeExtractions(passes);
-    }
-    if(!passes.length)throw Error('Geen tekst gevonden. Maak een scherpere, rechte foto of vul de gegevens handmatig in.');
-    // Keep OCR passes separate when extracting so unrelated lines do not merge.
-    $('raw').value=texts.map(t=>'--- '+t.name+' ---\n'+t.text).join('\n\n');
-    $('progress').value=1;applyText(merged);
-  }finally{
-    if(worker)await worker.terminate();
-    if(images)for(const image of images){image.width=1;image.height=1}
-    $('progress').hidden=true;
-  }
+ if(!file)throw Error('Kies eerst een document.');
+ $('progress').hidden=false;$('progress').value=0;$('qrDetails').replaceChildren();notice('scanMessage','Document voorbereiden…');
+ let worker,images,step=0,passes=[],texts=[],warnings=[],qr=[];
+ try{
+   async function getWorker(){
+     if(worker)return worker;
+     if(!window.Tesseract)throw Error('OCR-bibliotheek niet geladen. Controleer internet.');
+     worker=await window.Tesseract.createWorker(['nld','fra','eng'],1,{logger:m=>{
+       if(m.status==='recognizing text')notice('scanMessage','OCR-ronde '+(step+1)+': tekst uitlezen…');
+     }});return worker;
+   }
+   function addText(text,name){if(text.trim()){texts.push({name,text});passes.push(extractDetailed(text))}}
+   async function recognize(image,psm,name){
+     const w=await getWorker();await w.setParameters({tessedit_pageseg_mode:String(psm),preserve_interword_spaces:'1'});
+     const r=await w.recognize(image);addText(r.data.text,name);step++;
+   }
+   async function qrScan(canvas){try{const q=await scanQR(canvas);if(q&&!qr.some(x=>JSON.stringify(x)===JSON.stringify(q)))qr.push(q)}catch{}}
+   if(isPdf(file)){
+     await readPDF(file,async({canvas,text,index,total})=>{
+       notice('scanMessage','PDF-pagina '+index+' van '+total+' uitlezen…');
+       if(index===1){$('preview').src=canvas.toDataURL('image/jpeg',.82);$('preview').hidden=false;}
+       await qrScan(canvas);addText(text,'PDF-pagina '+index);
+       const extracted=extractDetailed(text).fields;
+       if(text.trim().length<80||!extracted.amount_cents||(!extracted.invoice_no&&!extracted.reference))await recognize(canvas,3,'PDF OCR '+index);
+       $('progress').value=index/total;
+     });
+   }else{
+     images=await prepareImages(file);const q=quality(images[0]);
+     if(q.dark)warnings.push('Foto lijkt donker.');if(q.soft)warnings.push('Foto lijkt mogelijk onscherp.');if(q.small)warnings.push('Foto heeft een lage resolutie.');
+     await qrScan(images[0]);await qrScan(images[1]);
+     await recognize(images[0],3,'Normale scan');$('progress').value=.33;
+     await recognize(images[1],3,'Contrastscan');$('progress').value=.66;
+     const m=mergeExtractions(passes);
+     if(Object.values(m.details).some(x=>!x.value||x.weak||x.ambiguous))await recognize(images[1],11,'Verspreide tekst');
+   }
+   if(!passes.length&&!qr.length)throw Error('Geen leesbare gegevens gevonden. Kies een scherpere foto of vul handmatig in.');
+   $('raw').value=texts.map(t=>'--- '+t.name+' ---\n'+t.text).join('\n\n');
+   const merged=mergeExtractions(passes);applyText(merged);
+   for(const q of qr)addScanSuggestion('EPC-betaal-QR — controleer rekening en bedrag',q);
+   if(warnings.length||qr.length)notice('scanMessage',$('scanMessage').textContent+'\n'+warnings.join(' ')+(qr.length?'\nBetaal-QR gevonden. Klik op de juiste voorstellen.':''),'warn');
+   $('progress').value=1;
+ }finally{
+   if(worker)await worker.terminate();
+   if(images)for(const image of images){image.width=1;image.height=1}
+   $('progress').hidden=true;
+ }
 },'scanMessage');
 function resetForm(){
   // Also called while an operation is busy, so clear the image directly.
   if(previewUrl)URL.revokeObjectURL(previewUrl);previewUrl='';file=null;
-  $('preview').hidden=true;$('preview').removeAttribute('src');$('camera').value='';$('file').value='';$('scan').disabled=true;
+  $('preview').hidden=true;$('preview').removeAttribute('src');$('preview').style.transform='';rotation=0;$('openOriginal').hidden=true;$('qrDetails').replaceChildren();$('camera').value='';$('file').value='';$('scan').disabled=true;
   $('raw').value='';$('invoiceForm').reset();$('ocrDetails').replaceChildren();for(const k of Object.keys(fieldLabels))$(fieldId(k)).classList.remove('needs-review');pending=null;$('override').hidden=true;$('matchDetails').replaceChildren();notice('scanMessage');notice('result');
 }
 $('reset').onclick=()=>{if(!busy)resetForm()};
 $('invoiceForm').oninput=()=>{pending=null;$('override').hidden=true;$('matchDetails').replaceChildren();notice('result');};
-for(const id of ['supplier','invoice_no','invoice_date','amount','reference','iban','document_type','related_ids','original_amount','fee_amount'])$(id).addEventListener('input',()=>{$('verified').checked=false});
+for(const id of ['supplier','invoice_no','invoice_date','amount','reference','iban','document_type','related_ids','original_amount','fee_amount','due_date','category'])$(id).addEventListener('input',()=>{$('verified').checked=false});
 async function readInvoice(){
   const supplier=$('supplier').value.trim(),invoice_no=$('invoice_no').value.trim(),r=$('reference').value.trim(),i=$('iban').value.trim(),d=$('invoice_date').value;
   const ref=reference(r),account=iban(i),cents=amount($('amount').value);
   if(!norm(supplier))throw Error('Vul de leverancier in.');
   if(r&&!ref)throw Error('De gestructureerde mededeling heeft geen geldig controlegetal. Controleer of laat leeg.');
   if(i&&!account)throw Error('Ongeldig IBAN. Controleer of laat leeg.');
-  const related_ids=$('related_ids').value.trim(),document_type=$('document_type').value;
+  const related_ids=$('related_ids').value.trim(),document_type=$('document_type').value,due_date=$('due_date').value||null,category=$('category').value;
+  if(due_date&&!date(due_date))throw Error('Ongeldige vervaldatum.');
   if(!norm(invoice_no)&&!ref&&!norm(related_ids))throw Error('Factuurnummer, dossierkenmerk of geldige mededeling is verplicht.');
   if(!cents)throw Error('Vul een geldig positief eurobedrag in, bv. 124,50.');
   if(d&&!date(d))throw Error('Ongeldige factuurdatum.');
   if(!$('verified').checked)throw Error('Bevestig eerst de gecontroleerde gegevens.');
-  if(!file)throw Error('Voeg altijd de originele foto toe voordat je registreert.');
+  if(!file)throw Error('Voeg altijd de originele foto of PDF toe voordat je registreert.');
   const readOptional=id=>{const t=$(id).value.trim();if(!t)return null;const n=amount(t);if(!n)throw Error('Ongeldig bedrag bij '+id);return n};
-  return {supplier,invoice_no,reference:ref,iban:account,invoice_date:d||null,amount_cents:cents,document_type,related_ids,original_cents:readOptional('original_amount'),fee_cents:readOptional('fee_amount'),photo_hash:await photoHash(file)};
+  return {supplier,invoice_no,reference:ref,iban:account,invoice_date:d||null,amount_cents:cents,document_type,related_ids,due_date,category,file_type:isPdf(file)?'application/pdf':file.type,original_cents:readOptional('original_amount'),fee_cents:readOptional('fee_amount'),photo_hash:await photoHash(file)};
 }
 function describe(x){return [x.supplier,money(x.amount_cents),x.invoice_no?'Nr. '+x.invoice_no:'',x.related_ids?'Dossier '+x.related_ids:'',x.invoice_date||'',x.reference||'',labels[x.status],x.review_required?'Controle vereist':'',x.paid_at?'Bevestigd: '+new Date(x.paid_at).toLocaleString('nl-BE'):''].filter(Boolean).join(' · ')}
 async function withLocalLock(fn){return navigator.locks?.request?navigator.locks.request('factuurcheck-write',fn):fn()}
@@ -250,12 +280,13 @@ function appendPhotos(parent,x){
    const fig=node('figure',undefined,'photo-card'),img=node('img'),cap=node('figcaption',documentLabels[d.document_type]+' · '+money(d.amount_cents)+(d.invoice_date?' · '+d.invoice_date:''));
    img.alt='Origineel document';img.loading='lazy';
    const b=node('button','Open originele foto','secondary');b.type='button';b.disabled=true;
-   fig.append(img,cap,b);gallery.append(fig);
+   if(d.file_type==='application/pdf'){img.hidden=true;fig.append(node('strong','PDF-document'));}fig.append(img,cap,b);gallery.append(fig);
    loadPhoto(d.photo_hash).then(blob=>{
      if(!blob){fig.append(node('small','Foto ontbreekt in lokale opslag.','muted'));return}
      if(!fig.isConnected)return;
-     const url=URL.createObjectURL(blob);archiveUrls.push(url);img.src=url;b.disabled=false;
-     b.onclick=()=>{const dialog=$('photoDialog');$('fullPhoto').src=url;dialog.showModal()};
+     const url=URL.createObjectURL(blob);archiveUrls.push(url);if(d.file_type!=='application/pdf')img.src=url;b.disabled=false;
+     b.textContent=d.file_type==='application/pdf'?'Open originele PDF':'Open originele foto';
+     b.onclick=()=>{if(d.file_type==='application/pdf'){const link=document.createElement('a');link.href=url;link.target='_blank';link.rel='noopener';link.click();return}const dialog=$('photoDialog');$('fullPhoto').src=url;dialog.showModal()};
    }).catch(()=>fig.append(node('small','Foto kon niet worden geladen.','muted')));
  }
  parent.append(gallery);
@@ -272,17 +303,56 @@ function reviewDossier(x){return run(async()=>{
  await withLocalLock(async()=>{
    const rows=readLocal(),current=rows.find(y=>y.id===x.id);
    if(!current||JSON.stringify(current)!==JSON.stringify(x))throw Error('Dossier is gewijzigd. Vernieuw en controleer opnieuw.');
-   saveLocal(rows.map(y=>y.id===x.id?resolveReview(y,remaining,new Date().toISOString()):y));
+   saveLocal(rows.map(y=>y.id===x.id?reconcile(y,remaining,new Date().toISOString(),'Saldo bevestigd na controle',x.documents?.at(-1)?.document_type==='credit'?'credit':'balance'):y));
  });
  notice('global','Controle geregistreerd. '+(remaining?'Alleen het bevestigde openstaande saldo is opnieuw beschikbaar voor betaling.':'Geen nieuwe betaling geregistreerd; dossier is afgesloten.'),'good');await refresh();
 })}
 
+
+function localToday(){const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10)}
+function renderDashboard(){
+ const today=localToday(),d=dashboard(items,today.slice(0,7),today);
+ $('dashOpen').textContent=money(d.open);$('dashPaid').textContent=money(d.paid);$('dashReview').textContent=d.review;$('dashLate').textContent=d.overdue;
+ $('dashSoon').textContent=d.soon+' binnen 7 dagen · '+d.partial+' gedeeltelijk betaald';
+ const chart=$('dashCategories');chart.replaceChildren();
+ for(const [name,value] of Object.entries(d.categories).sort((a,b)=>b[1]-a[1])){
+   const line=node('div',undefined,'dash-bar');line.append(node('span',name),node('strong',money(value)));const track=node('div',undefined,'bar-track'),fill=node('div',undefined,'bar-fill');fill.style.width=(value/Math.max(1,d.paid)*100)+'%';track.append(fill);chart.append(line,track);
+ }
+ if(!Object.keys(d.categories).length)chart.append(node('p','Nog geen geregistreerde betalingen deze maand.','muted'));
+ const months=$('dashMonths');months.replaceChildren();
+ const max=Math.max(1,...Object.values(d.months));
+ for(const [m,v] of Object.entries(d.months).sort().slice(-6)){const line=node('div',undefined,'dash-bar');line.append(node('span',m),node('strong',money(v)));const track=node('div',undefined,'bar-track'),fill=node('div',undefined,'bar-fill');fill.style.width=(v/max*100)+'%';track.append(fill);months.append(line,track)}
+ if(!months.childNodes.length)months.append(node('p','Nog geen betaalhistoriek.','muted'));
+}
+async function mutateRow(x,fn){
+ await withLocalLock(async()=>{const rows=readLocal(),row=rows.find(y=>y.id===x.id);if(!row||JSON.stringify(row)!==JSON.stringify(x))throw Error('Dossier gewijzigd. Vernieuw en controleer opnieuw.');saveLocal(rows.map(y=>y.id===x.id?fn(row):y))});
+ await refresh();
+}
+function addPayment(x,partial=false){return run(async()=>{
+ const balance=openBalance(x);if(balance<=0)throw Error('Geen openstaand saldo.');
+ const input=partial?prompt('Werkelijk betaald bedrag in euro (max. '+money(balance)+')',''):String(balance/100);
+ if(input===null)return;const cents=amount(input);if(!cents||cents>balance)throw Error('Ongeldig betaalbedrag.');
+ const when=prompt('Datum van de werkelijke bankbetaling (JJJJ-MM-DD)',localToday());if(when===null)return;if(!date(when)||when>localToday())throw Error('Ongeldige betalingsdatum.');
+ const note=prompt('Optioneel: betalingsbewijsnummer of opmerking','');if(note===null)return;
+ if(!confirm('Bevestig dat '+money(cents)+' daadwerkelijk betaald is. Er wordt geen overschrijving uitgevoerd.'))return;
+ await mutateRow(x,row=>recordPayment(row,cents,new Date().toISOString(),crypto.randomUUID(),note,when));
+ notice('global','Betaling geregistreerd. Resterend saldo: '+money(balance-cents),'good');
+})}
+function flagReview(x){return run(async()=>{if(confirm('Zet het dossier op controle om het werkelijke saldo te bevestigen?'))await mutateRow(x,row=>({...row,review_required:true,review_reason:'Oude betaalstatus moet worden gecontroleerd.'}))})}
+function appendPayments(entry,x){
+ if(!(x.payments||[]).length)return;
+ const details=node('details');details.append(node('summary','Betalingshistoriek'));
+ for(const p of x.payments){const reversed=(x.payments||[]).some(r=>r.kind==='reversal'&&r.reverses===p.id);details.append(node('p',(p.kind==='reversal'?'Correctie: ':'Betaling: ')+money(p.cents)+' · '+(p.payment_date||p.at.slice(0,10))+(reversed?' · gecorrigeerd':'')+(p.note?' · '+p.note:''),'muted'));if(p.kind==='payment'&&!reversed&&!x.review_required&&x.status!=='paying')action(details,'Corrigeer deze betaling','secondary',()=>run(async()=>{if(confirm('Bevestig dat deze registratie fout was. Het dossier wordt geblokkeerd tot je bankcontrole.'))await mutateRow(x,row=>reversePayment(row,p.id,new Date().toISOString()))}))}
+ entry.append(details);
+}
+
 function render(){
+  renderDashboard();
   // Release URLs belonging to removed history cards; preserve result photos.
   for(const url of archiveUrls.filter(u=>!Array.from(document.querySelectorAll('img')).some(img=>img.src===u))){URL.revokeObjectURL(url)}
   archiveUrls=archiveUrls.filter(u=>Array.from(document.querySelectorAll('img')).some(img=>img.src===u));
-  const q=norm($('search').value),filter=$('filter').value;
-  const list=items.filter(x=>(!filter||(filter==='review'?x.review_required:!x.review_required&&x.status===filter))&&(!q||norm([x.supplier,x.invoice_no,x.reference,x.iban,x.related_ids,...(x.documents||[]).flatMap(d=>[d.invoice_no,d.related_ids,d.reference,d.supplier])].join(' ')).includes(q)));
+  const q=norm($('search').value),filter=$('filter').value,cat=$('categoryFilter').value;
+  const list=items.filter(x=>(!cat||(x.category||'Overige')===cat)&&(!filter||(filter==='review'?x.review_required:filter==='partial'?!x.review_required&&openBalance(x)>0&&(x.payments||[]).some(p=>p.kind==='payment'&&!(x.payments||[]).some(r=>r.kind==='reversal'&&r.reverses===p.id)):!x.review_required&&x.status===filter))&&(!q||norm([x.supplier,x.invoice_no,x.reference,x.iban,x.related_ids,...(x.documents||[]).flatMap(d=>[d.invoice_no,d.related_ids,d.reference,d.supplier])].join(' ')).includes(q)));
   $('summary').textContent=items.length+' facturen · '+items.filter(x=>x.status==='paid'&&!x.review_required).length+' betaald · '+items.filter(x=>x.status==='paying'&&!x.review_required).length+' bezig · '+items.filter(x=>x.status==='unpaid'&&!x.review_required).length+' open · '+items.filter(x=>x.review_required).length+' controleren';
   const history=$('history');history.replaceChildren();
   for(const url of archiveUrls.filter(u=>!Array.from(document.querySelectorAll('img')).some(img=>img.src===u)))URL.revokeObjectURL(url);
@@ -290,18 +360,19 @@ function render(){
   if(!list.length)history.append(node('p','Geen facturen gevonden.','muted'));
   for(const x of list){
     const outer=node('article',undefined,'entry entry-layout'),entry=node('div'),line=node('div',undefined,'line');
-    line.append(node('h3',x.supplier+' · '+money(x.amount_cents)),node('span',x.review_required?'Controle vereist':labels[x.status]||x.status,'pill '+(x.review_required?'paying':x.status)));entry.append(line);
+    line.append(node('h3',x.supplier+' · '+money(openBalance(x))+' open'),node('span',x.review_required?'Controle vereist':(x.status==='paid'&&x.closed_reason==='reconciled'?'Afgesloten':x.status==='unpaid'&&openBalance(x)>0&&(x.payments||[]).some(p=>p.kind==='payment')?'Gedeeltelijk betaald':labels[x.status]||x.status),'pill '+(x.review_required?'paying':x.status)));entry.append(line);
     entry.append(node('p',[x.invoice_no?'Nr. '+x.invoice_no:'',x.invoice_date||'',x.reference?'Mededeling '+x.reference:''].filter(Boolean).join(' · '),'muted'));
+    entry.append(node('p','Oorspronkelijk geregistreerd: '+money(x.amount_cents)+(x.due_date?' · Vervalt '+x.due_date:'')+' · '+(x.category||'Overige'),'muted'));
     if(x.paid_at)entry.append(node('small','Betaling bevestigd: '+new Date(x.paid_at).toLocaleString('nl-BE')));
     const buttons=node('div',undefined,'actions');
     if(x.review_required){entry.append(node('p',x.review_reason||'Controleer bank en leverancier.','notice warn'));if(x.status!=='paying')action(buttons,'Openstaand saldo controleren','',()=>reviewDossier(x));}
-    if(x.status==='unpaid'&&!x.review_required){action(buttons,'Ik ga betalen','',()=>changeStatus(x,'paying'));action(buttons,'Al eerder betaald','secondary',()=>changeStatus(x,'paid'));}
+    if(x.status==='unpaid'&&!x.review_required){action(buttons,'Ik ga betalen','',()=>changeStatus(x,'paying'));action(buttons,'Al eerder betaald','secondary',()=>addPayment(x));action(buttons,'Deelbetaling registreren','secondary',()=>addPayment(x,true));}
     if(x.status==='paying'){
-      action(buttons,'Betaling bevestigen','',()=>changeStatus(x,'paid'));
+      action(buttons,'Betaling bevestigen','',()=>addPayment(x));action(buttons,'Deelbetaling bevestigen','secondary',()=>addPayment(x,true));
       action(buttons,'Reservering vrijgeven','secondary',()=>changeStatus(x,'unpaid'));
     }
-    if(x.status==='paid'&&!x.review_required)action(buttons,'Betaalstatus corrigeren','secondary',()=>changeStatus(x,'unpaid'));
-    entry.append(buttons);if(x.reviews?.length){const details=node('details');details.append(node('summary','Eerdere saldocontroles'));for(const audit of x.reviews)details.append(node('p',new Date(audit.at).toLocaleString('nl-BE')+' · vorig '+money(audit.previous_amount_cents)+' ('+labels[audit.previous_status]+') · bevestigd open '+money(audit.confirmed_open_cents),'muted'));entry.append(details)}outer.append(entry);const photos=node('aside');appendPhotos(photos,x);outer.append(photos);history.append(outer);
+    if(x.status==='paid'&&!x.review_required&&!(x.payments||[]).length)action(buttons,'Oude betaalstatus controleren','secondary',()=>flagReview(x));
+    entry.append(buttons);appendPayments(entry,x);if(x.reviews?.length){const details=node('details');details.append(node('summary','Eerdere saldocontroles'));for(const audit of x.reviews)details.append(node('p',new Date(audit.at).toLocaleString('nl-BE')+' · vorig '+money(audit.previous_amount_cents)+' ('+labels[audit.previous_status]+') · bevestigd open '+money(audit.confirmed_open_cents),'muted'));entry.append(details)}outer.append(entry);const photos=node('aside');appendPhotos(photos,x);outer.append(photos);history.append(outer);
   }
 }
 function changeStatus(x,next){return run(async()=>{
@@ -313,13 +384,13 @@ function changeStatus(x,next){return run(async()=>{
       await withLocalLock(async()=>{const rows=readLocal(),row=rows.find(y=>y.id===x.id);
       if(!row||row.status!==x.status)throw Error('Status gewijzigd. Vernieuw de lijst.');
       if(row.review_required&&row.status!=='paying')throw Error('Controleer eerst het dossier.');
-      row.status=next;row.paid_at=next==='paid'?new Date().toISOString():null;saveLocal(rows);});
+      if(next==='paying'&&openBalance(row)<=0)throw Error('Geen openstaand saldo.');row.status=next;row.paid_at=null;saveLocal(rows);});
     }else await rpc('set_invoice_status',{p_id:x.id,p_expected:x.status,p_next:next});
     notice('global',next==='paying'?'Reservering bevestigd. Alleen nu mag je de betaling uitvoeren.':next==='paid'?'Betaling geregistreerd.':'Status teruggezet.','good');
   }catch(e){notice('global','Geen nieuwe bevestiging: '+errorText(e)+' Betaal niet op basis van een onbevestigde reservering.','error')}
   await refresh();
 })}
-$('search').oninput=render;$('filter').onchange=render;$('refresh').onclick=()=>run(refresh);
+$('categoryFilter').onchange=render;$('search').oninput=render;$('filter').onchange=render;$('refresh').onclick=()=>run(refresh);
 $('clearLocal').onclick=()=>run(async()=>{if(mode==='local'&&confirm('Alle lokale testfacturen definitief wissen?')){await withLocalLock(async()=>{localStorage.removeItem(LOCAL);await clearPhotos()});await refresh()}});
 window.addEventListener('focus',()=>{if(mode&&!busy)run(refresh)});
 window.addEventListener('storage',e=>{if(mode==='local'&&e.key===LOCAL&&!busy)run(refresh)});
