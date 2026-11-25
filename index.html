@@ -22,10 +22,10 @@
 <h2>Kies hoe je wilt werken</h2>
 <p class="muted">De lokale testmodus bewaart gegevens uitsluitend in deze browser. De gezinsmodus gebruikt een gedeelde, afgeschermde database.</p>
 <div class="actions"><button id="local">Lokale test starten</button></div>
-<details id="cloud"><summary>Gezinsmodus (testomgeving)</summary>
+<details id="cloud"><summary>Gezinsmodus (gratis testproject)</summary>
 <p class="notice warn">Dit is een ontwikkelversie. Gebruik alleen een apart Supabase-testproject en fictieve facturen. De lokale facturen worden niet automatisch geïmporteerd.</p><form id="login">
-<label>Supabase project-URL<input id="url" type="url" required placeholder="https://…supabase.co" autocomplete="off"></label>
-<label>Publieke publishable / anon key<input id="key" required autocomplete="off" placeholder="sb_publishable_… of anon JWT"></label>
+<label>Supabase project-URL<input id="url" type="url" required readonly value="https://ggsgwcfndqhbnnmbuwck.supabase.co" placeholder="https://…supabase.co" autocomplete="off"></label>
+<label>Publieke publishable / anon key<input id="key" required readonly value="sb_publishable_ZTrVcFAG9mEGSYeby41TDA_R-SAvzOO" autocomplete="off" placeholder="sb_publishable_… of anon JWT"></label>
 <small>Gebruik nooit een secret- of service_role-key. Configuratie wordt op dit toestel onthouden.</small>
 <label>E-mailadres<input id="email" type="email" autocomplete="username" required></label>
 <label>Wachtwoord<input id="password" type="password" autocomplete="current-password" required></label>
