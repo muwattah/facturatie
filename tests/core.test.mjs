@@ -69,3 +69,7 @@ test('Different reminder number and original identifier is possible',()=>assert.
 test('Different supplier with same reference does not automatically mean paid',()=>assert.equal(compareInvoice({...base,reference:'123456789002',supplier:'Other'},{...base,reference:'123456789002'}).kind,'possible'));
 test('Municipal alias',()=>assert.equal(supplierKey('Antwerpen'),supplierKey('Stad Antwerpen')));
 test('Same photo even when supplier OCR differs',()=>assert.equal(compareInvoice({...base,supplier:'Other',photo_hash:'xyz'},{...base,photo_hash:'xyz'}).kind,'exact'));
+
+test('Credit note extracts absolute credit amount for manual reconciliation',()=>assert.equal(extract('Creditnota\nCreditbedrag: -25,50 EUR').amount_cents,2550));
+test('Open balance outranks original face amount',()=>assert.equal(extract('Totaal 120,00\nOpenstaand saldo 70,00').amount_cents,7000));
+test('Changed beneficiary IBAN on same invoice requires verification',()=>assert.equal(compareInvoice({...base,iban:'BE68539007547034'},{...base,iban:'BE71096123456769'}).kind,'changed'));
