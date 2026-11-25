@@ -70,7 +70,7 @@ function invoiceToken(s){
  return x;
 }
 const publicSuppliers=[
- ['Stad Antwerpen',/\bstad\s+antw(?:erpen|re?pen|rp?en)\b|\bville\s+d['’]anvers\b|\bantwerpen\.be\b|\b(?:stad\s+)?antwerpen\s*[-:]\s*(?:financien|belastingen|retributies)/i],
+ ['Stad Antwerpen',/\bstad\s+antw(?:erpen|rerpen|repen|rpen)\b|\bville\s+d['’]anvers\b|\bantwerpen\.be\b|\b(?:stad\s+)?antwerpen\s*[-:]\s*(?:financien|belastingen|retributies)/i],
  ['Vlaamse Belastingdienst',/\bvlaamse\s+belastingdienst\b|\bvlabel\b/i],
  ['FOD Financiën',/\bfod\s+financi[eë]n\b|\bspf\s+finances\b|\bmyminfin\b/i],
  ['Vlaamse overheid',/\bvlaamse\s+overheid\b/i],
@@ -235,7 +235,7 @@ export function documentInfo(raw){
  return {document_type,related_ids:[...new Set(related)].slice(0,12).join(' / '),original_cents:original?amount(original[1]):null,fee_cents:fees?amount(fees[1]):null};
 }
 export function supplierKey(s){
- const n=norm(s);if(/^(?:STAD)?ANTW(?:ERPEN|REPEN|RPEN)$/.test(n)||n==='VILLEDANVERS')return 'STADANTWERPEN';
+ const n=norm(s);if(/^(?:STAD)?ANTW(?:ERPEN|RERPEN|REPEN|RPEN)$/.test(n)||n==='VILLEDANVERS')return 'STADANTWERPEN';
  if(n==='VLABEL'||n==='VLAAMSEBELASTINGDIENST')return 'VLABEL';
  if(n==='FODFINANCIEN'||n==='SPFFINANCES'||n==='MYMINFIN')return 'FODFINANCIEN';
  return n.replace(/(?:BVBA|SRL|SPRL|GMBH|LTD|NV|BV|VZW|ASBL)$/,'');
