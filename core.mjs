@@ -52,8 +52,8 @@ const dateLabel=/\b(?:factuur\s*datum|datum\s+(?:van\s+de\s+)?factuur|invoice\s*
 const wrongDate=/verval|uiterste|betaal(?:datum|baar)|due\s*date|echeance|échéance|periode|leveringsdatum|delivery|payment\s+date/i;
 const otherLabel=/(?:klant(?:nummer|nr)?|customer|client|numero de client|contract|btw|vat|tva|iban|bic|datum|date|verval|totaal|total|bedrag|amount|mededeling|communication|reference|referentie|order|bestel|rekening|account)\b/i;
 const amountLabels=[
- [/\b(?:totaal\s+(?:nog\s+)?te\s+betalen|(?:nog|netto)\s+te\s+betalen|te\s+betalen(?:\s+bedrag)?|te\s+storten|amount\s+due|balance\s+due|total\s+due|total\s+a\s+payer|montant\s+(?:total\s+)?a\s+payer|net\s+a\s+payer|solde\s+a\s+payer|reste\s+a\s+payer)\b/,100],
- [/\b(?:totaalbedrag|factuurbedrag|bedrag\s+(?:van\s+de\s+)?factuur|eindtotaal|totaal\s+(?:incl\.?|inclusief)\s*(?:btw)?|total\s+ttc|montant\s+ttc|total\s+(?:incl\.?|including)\s*(?:vat|tax)?|grand\s+total|invoice\s+total|total\s+facture|total\s+tvac|totaal\s+tegoed)\b/,88],
+ [/\b(?:totaal\s+(?:nog\s+)?te\s+betalen|(?:nog|netto)\s+te\s+betalen|te\s+betalen(?:\s+bedrag)?|te\s+storten|te\s+voldoen|verschuldigd(?:\s+bedrag)?|bedrag\s+verschuldigd|openstaand(?:e)?\s+(?:bedrag|saldo|schuld)|nog\s+verschuldigd|te\s+betalen\s+saldo|saldo\s+te\s+betalen|amount\s+due|balance\s+due|total\s+due|total\s+a\s+payer|montant\s+(?:total\s+)?a\s+payer|net\s+a\s+payer|solde\s+a\s+payer|reste\s+a\s+payer)\b/,100],
+ [/\b(?:totaalbedrag|factuurbedrag|bedrag\s+(?:van\s+de\s+)?factuur|eindtotaal|totaal\s+(?:incl\.?|inclusief)\s*(?:btw)?|total\s+ttc|montant\s+ttc|total\s+(?:incl\.?|including)\s*(?:vat|tax)?|grand\s+total|invoice\s+total|total\s+facture|total\s+tvac|aanslagbedrag|retributiebedrag|bedrag\s+van\s+de\s+aanslag|totaal\s+tegoed)\b/,88],
  [/\b(?:totaal|total)\b/,62],
  [/\b(?:bedrag|montant|amount)\b/,40]
 ];
@@ -93,6 +93,7 @@ export function extractDetailed(raw){
    candidates[k].push({value,score,source:source.slice(0,200)});
  }
  const whole=lines.join('\n');
+ const credit=/\b(?:creditnota|credit\s+note|avoir|creditfactuur)\b/i.test(plain(whole));
  for(let i=0;i<lines.length;i++){
    const l=lines[i], p=plain(l), next=lines[i+1]||'', prev=lines[i-1]||'';
    // Explicit OGM delimiters and 3/4/5 digit grouping; validate modulo 97.
@@ -144,6 +145,12 @@ export function extractDetailed(raw){
      if(/^(?:datum|date)\s*[:#]?\s*$/i.test(l))add('invoice_date',datesIn(next)[0],75,l+' / '+next);
      else if(/^(?:datum|date)\s*[:#]?\s+/i.test(l))add('invoice_date',datesIn(l)[0],78,l);
      else if(i<12&&datesIn(l).length===1&&!/periode|period|van\s+.*tot/i.test(l))add('invoice_date',datesIn(l)[0],42,l);
+   }
+   if(credit&&/\b(?:creditbedrag|te\s+crediteren|te\s+ontvangen|terug\s+te\s+betalen|credit\s+amount|montant\s+(?:a\s+rembourser|credite)|totaal|total)\b/i.test(p)&&!notTotal.test(p)){
+     const positive=l.replace(/[-−]\s*(?=€?\s*\d)/g,'');
+     const values=amountsIn(positive,true);
+     if(values.length===1)add('amount_cents',values[0],108,l);
+     else if(!values.length){const v=amountsIn(next.replace(/[-−]\s*(?=€?\s*\d)/g,''),true);if(v.length===1)add('amount_cents',v[0],101,l+' / '+next);}
    }
    if(!notTotal.test(p)){
      const label=amountLabels.find(([re])=>re.test(p));
@@ -262,11 +269,12 @@ export function compareInvoice(a,b){
  if(sameId)reasons.push(sameNo?'Hetzelfde factuurnummer':'Gelijk dossier- of oorspronkelijk factuurnummer');
  if(supplier)reasons.push('Dezelfde leverancier');
  if(account)reasons.push('Dezelfde IBAN');
+ if(ai&&bi&&ai!==bi)reasons.push('IBAN gewijzigd — controleer de leverancier via een vertrouwd kanaal');
  if(sameAmount)reasons.push('Hetzelfde bedrag');
  if(reminder)reasons.push('Herinnering, incasso of creditnota');
  const exact=photo||(ref&&ref===other&&context)||(sameNo&&context);
  if(exact){
-   if(!sameAmount||a.document_type==='credit'||(reminder&&a.document_type==='collection')||(dateGap!==null&&dateGap>370&&!photo)|| (ref&&other&&ref!==other&&!photo))return {kind:'changed',reasons:[...reasons,'Bedrag of documentkenmerken gewijzigd']};
+   if(!sameAmount||ai&&bi&&ai!==bi&&!photo||a.document_type==='credit'||(reminder&&a.document_type==='collection')||(dateGap!==null&&dateGap>370&&!photo)|| (ref&&other&&ref!==other&&!photo))return {kind:'changed',reasons:[...reasons,'Bedrag of documentkenmerken gewijzigd']};
    return {kind:'exact',reasons};
  }
  if(ref&&ref===other||sameId||(context&&an.some(x=>bn.some(y=>similarId(x,y))))||
