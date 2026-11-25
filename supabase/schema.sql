@@ -95,7 +95,7 @@ declare h uuid; v public.invoices%rowtype;
 begin
   select household_id into h from public.household_members where user_id=auth.uid();
   if h is null then raise exception 'Geen toegang tot een huishouden'; end if;
-  if not ((p_expected='unpaid' and p_next='paying') or
+  if not ((p_expected='unpaid' and p_next in ('paying','paid')) or
           (p_expected='paying' and p_next in ('paid','unpaid')) or
           (p_expected='paid' and p_next='unpaid')) then
     raise exception 'Ongeldige statuswijziging';
