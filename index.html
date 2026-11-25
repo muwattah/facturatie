@@ -7,6 +7,7 @@
 <style>
 :root{font-family:system-ui,-apple-system,sans-serif;color:#19302e;background:#f3f6f3;line-height:1.5;--green:#173f39;--muted:#52645f}
 *{box-sizing:border-box}body{margin:0}header{background:var(--green);color:white;padding:25px 20px 28px}header div,main{max-width:760px;margin:auto}header h1{margin:0;font-size:29px}header p{margin:3px 0 0;color:#d8ebe5}main{padding:16px 14px 70px}section{background:white;border:1px solid #dce5df;border-radius:18px;padding:18px;margin:0 0 15px}h2{font-size:19px;margin:0 0 10px}p{margin:8px 0}small,.muted{color:var(--muted)}label{display:block;font-weight:650;font-size:14px;margin:10px 0}input,textarea,select{display:block;width:100%;padding:11px;border:1px solid #b9c9c2;border-radius:9px;background:white;color:#19302e;font:inherit;margin-top:5px}button{border:0;background:var(--green);color:white;border-radius:10px;padding:12px 15px;font:inherit;font-weight:650;cursor:pointer;min-height:44px}button.secondary{background:#e9f1ec;color:var(--green)}button.danger{background:#a22626}button:disabled{opacity:.5;cursor:not-allowed}.actions{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.actions>*{flex:1 1 auto}.fields{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}.full{grid-column:1/-1}.notice{padding:13px;border-radius:10px;background:#e9f1ec;margin:10px 0;white-space:pre-wrap;overflow-wrap:anywhere}.notice.error{background:#fee8e6;color:#8b201b}.notice.warn{background:#fff0cb;color:#785200}.notice.good{background:#dff3e5;color:#175e34}.entry{border-top:1px solid #dce5df;padding:13px 0}.entry h3{font-size:17px;margin:0;overflow-wrap:anywhere}.line{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.pill{font-size:12px;font-weight:700;padding:4px 9px;border-radius:20px;background:#e7eeea;white-space:nowrap}.paid{background:#dff3e5;color:#175e34}.paying{background:#fff0cb;color:#785200}.unpaid{background:#e7eeea}progress{width:100%;accent-color:var(--green)}details{margin:10px 0}summary{cursor:pointer}img{max-width:100%;max-height:260px;object-fit:contain;border-radius:8px}a{color:var(--green)}[hidden]{display:none!important}button:focus-visible,input:focus-visible{outline:3px solid #c38324;outline-offset:2px}@media(max-width:470px){.fields{grid-template-columns:1fr}section{padding:14px}.line{flex-wrap:wrap}}
+.needs-review{border:2px solid #c68c23;background:#fffbef}.ocr-field{border-top:1px solid #dce5df;padding:10px 0}.ocr-choice{display:flex;align-items:center;gap:10px;margin:6px 0;flex-wrap:wrap}.ocr-choice small{flex:1;min-width:120px;overflow-wrap:anywhere}.ocr-choice button{overflow-wrap:anywhere;max-width:100%}
 </style>
 <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
@@ -41,14 +42,15 @@
 <label>Camera<input id="camera" type="file" accept="image/*" capture="environment"></label>
 <label>Afbeelding kiezen<input id="file" type="file" accept="image/*"></label>
 <img id="preview" alt="Voorbeeld van gekozen factuur" hidden>
-<div class="actions"><button id="scan" disabled>Tekst uitlezen</button><button id="reset" class="secondary">Nieuwe scan / wissen</button></div>
+<div class="actions"><button id="scan" disabled>Factuur uitlezen (meerdere scans)</button><button id="reset" class="secondary">Nieuwe scan / wissen</button></div>
 <progress id="progress" max="1" value="0" hidden></progress>
 <div id="scanMessage" role="status" aria-live="polite" class="notice" hidden></div>
-<details><summary>Herkende tekst bekijken of plakken</summary><label>Tekst<textarea id="raw" rows="5"></textarea></label><button id="parse" class="secondary">Gegevens uit tekst halen</button></details>
+<details><summary>Herkende tekst per scanronde bekijken of plakken</summary><label>Tekst<textarea id="raw" rows="5"></textarea></label><button id="parse" class="secondary">Gegevens uit tekst halen</button></details>
 </section>
 <section>
 <h2>2. Gegevens controleren</h2>
 <p class="muted">OCR kan fouten maken. Vergelijk alle velden met de originele factuur. De voorgestelde leverancier moet je altijd zelf bevestigen of invullen.</p>
+<div id="ocrDetails" aria-live="polite"></div>
 <form id="invoiceForm">
 <div class="fields">
 <label class="full">Leverancier *<input id="supplier" required maxlength="180" placeholder="bv. Telenet"></label>
@@ -74,7 +76,7 @@
 <div class="actions" id="localTools" hidden><button id="clearLocal" class="danger">Lokale testgegevens wissen</button></div>
 </section>
 </div>
-<small>FactuurCheck · v0.1 · Geen automatische bankcontrole. Gebruik testgegevens tot je de werking hebt gecontroleerd.</small>
+<small>FactuurCheck · v0.2.0 · Geen automatische bankcontrole. Gebruik testgegevens tot je de werking hebt gecontroleerd.</small>
 </main>
-<script type="module" src="./app.mjs"></script>
+<script type="module" src="./app.mjs?v=0.2.0"></script>
 </body></html>
