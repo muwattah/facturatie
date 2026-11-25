@@ -1,4 +1,4 @@
-# FactuurCheck — v0.1
+# FactuurCheck — v0.2.0
 
 Mobiele webapp voor Belgische gezinsfacturen. OCR (Nederlands, Frans, Engels), handmatige controle, dubbele-factuurwaarschuwingen, geschiedenis en betaalreservering. Geen automatische bankbetaling of bankkoppeling.
 
@@ -51,7 +51,7 @@ De app bewaart alleen bevestigde factuurvelden en betaalstatus. Foto en volledig
 - Nieuwe factuur betekent uitsluitend geen overeenkomst in dit archief. Controleer altijd of ze al betaald is bij de bank.
 - Reserveer eerst via Ik ga betalen. Betaal alleen na een bevestigde reservering. Markeer vervolgens betaald na de bankbetaling.
 - Als een oud archiefstuk al betaald is, registreer het en kies Al eerder betaald, zonder nog eens geld over te schrijven. Controleer de bank. De geregistreerde bevestigingsdatum is de app-datum, niet de historische bankdatum.
-- Als OCR gegevens niet herkent, vul ze handmatig in. De app probeert een leverancier voor te stellen op basis van labels of bedrijfsnaam; die moet handmatig bevestigd worden. PDF's worden in deze versie niet rechtstreeks ondersteund.
+- Als OCR gegevens niet herkent, vul ze handmatig in. De app zoekt leverancierslabels, bedrijfsnamen en bekende leveranciers. De suggestie moet handmatig bevestigd worden. PDF's worden in deze versie niet rechtstreeks ondersteund.
 - Hergebruikte gestructureerde mededelingen en factuurnummers kunnen tot onterechte blokkades leiden. OCR-fouten of ontbrekende historische gegevens kunnen tot gemiste dubbele facturen leiden.
 - Alleen gezinsleden die de app vóór elke betaling gebruiken, profiteren van de reserveringscontrole. Er is geen automatische verificatie bij de bank.
 
@@ -72,6 +72,12 @@ De app bewaart alleen bevestigde factuurvelden en betaalstatus. Foto en volledig
 | Account zonder huishoudlidmaatschap | Geen toegang |
 | Tweede huishouden | Geen toegang tot eerste huishouden |
 | Internet uit in gezinsmodus | Foutmelding; nooit stil overschakelen op lokaal |
+
+## Verbeterde OCR (v0.2.0)
+
+De scanner verwerkt de afbeelding lokaal in maximaal drie rondes: normale lay-out, contrastverbetering en zo nodig verspreide tekst. De herkenning gebruikt Nederlandstalige, Franstalige en Engelstalige labels, waarden op de volgende regel en gevalideerde IBAN/OGM-codes. Twijfelgevallen worden gemarkeerd; klik op een alternatief om het veld in te vullen. De ruwe tekst per scanronde is onder de scanner te bekijken. De app verzendt geen factuurfoto naar een externe OCR-dienst.
+
+Herkenning van alle velden is niet gegarandeerd: logo's zonder leesbare tekst, onscherpte, ongebruikelijke lay-outs of ontbrekende gegevens kunnen een handmatige correctie vereisen. De extra OCR-rondes kunnen de scan trager maken op oudere smartphones. De parser is getest met fictieve OCR-tekst, niet met de originele factuur van de gebruiker.
 
 ## Technisch
 
