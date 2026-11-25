@@ -50,8 +50,8 @@ De app bewaart alleen bevestigde factuurvelden en betaalstatus. Foto en volledig
 - Mogelijke overeenkomst: dezelfde leverancier/rekening en bedrag met datumverschil maximaal 31 dagen (of ontbrekende datum). Alleen na controle kun je toch registreren.
 - Nieuwe factuur betekent uitsluitend geen overeenkomst in dit archief. Controleer altijd of ze al betaald is bij de bank.
 - Reserveer eerst via Ik ga betalen. Betaal alleen na een bevestigde reservering. Markeer vervolgens betaald na de bankbetaling.
-- Als een oud archiefstuk al betaald is, registreer het en doorloop de betaalstatus zonder nog eens geld over te schrijven. Controleer de bank. De geregistreerde bevestigingsdatum is de app-datum, niet de historische bankdatum.
-- Als OCR gegevens niet herkent, vul ze handmatig in. De leverancier moet handmatig bevestigd worden. PDF's worden in deze versie niet rechtstreeks ondersteund.
+- Als een oud archiefstuk al betaald is, registreer het en kies Al eerder betaald, zonder nog eens geld over te schrijven. Controleer de bank. De geregistreerde bevestigingsdatum is de app-datum, niet de historische bankdatum.
+- Als OCR gegevens niet herkent, vul ze handmatig in. De app probeert een leverancier voor te stellen op basis van labels of bedrijfsnaam; die moet handmatig bevestigd worden. PDF's worden in deze versie niet rechtstreeks ondersteund.
 - Hergebruikte gestructureerde mededelingen en factuurnummers kunnen tot onterechte blokkades leiden. OCR-fouten of ontbrekende historische gegevens kunnen tot gemiste dubbele facturen leiden.
 - Alleen gezinsleden die de app vóór elke betaling gebruiken, profiteren van de reserveringscontrole. Er is geen automatische verificatie bij de bank.
 
