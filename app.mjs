@@ -40,7 +40,7 @@ function enter(next){
 $('local').onclick=()=>run(async()=>{readLocal();enter('local');await refresh()},'setupMessage');
 try{const c=JSON.parse(localStorage.getItem(CONFIG)||'null');if(c){$('url').value=c.url;$('key').value=c.key;$('email').value=c.email;$('cloud').open=true}}catch{}
 function validateConfig(){
-  throw Error('Gezinsmodus is tijdelijk uitgeschakeld voor v0.3.0: het nieuwe fotoarchief en herinneringsdossiers moeten eerst beveiligd worden geïmplementeerd en getest in Supabase. Gebruik lokale testmodus.');
+  throw Error('Gezinsmodus is tijdelijk uitgeschakeld voor v0.4.0: het nieuwe fotoarchief en herinneringsdossiers moeten eerst beveiligd worden geïmplementeerd en getest in Supabase. Gebruik lokale testmodus.');
   const url=new URL($('url').value.trim()), key=$('key').value.trim();
   if(url.protocol!=='https:'||!/^[a-z0-9-]+\.supabase\.co$/.test(url.hostname)||url.pathname!=='/'||url.search||url.hash||url.port||url.username||url.password)throw Error('Gebruik de HTTPS project-URL van Supabase, zonder pad.');
   if(!key.startsWith('sb_publishable_')){
@@ -261,7 +261,7 @@ async function register(v,choice={}){
   }else{
     const x=r.invoice;
     if(r.kind==='review')notice('result','CONTROLE VEREIST — document bewaard in het dossier. Betaal niets opnieuw voordat je bank en leverancier het werkelijke openstaande saldo bevestigen.\n'+describe(x),'warn');
-    else if(r.kind==='exact')notice('result',(x.status==='paid'?'AL BETAALD — niet opnieuw betalen.':x.status==='paying'?'BETALING BEZIG — niet opnieuw betalen.':'AL GEREGISTREERD — geen tweede schuld.')+'\n'+describe(x)+'\nFoto bewaard in het dossier.',x.status==='paid'?'error':'warn');
+    else if(r.kind==='exact')notice('result',(x.status==='paid'?(x.closed_reason==='reconciled'?'AFGESLOTEN — geen bevestigd openstaand saldo.':'AL BETAALD — niet opnieuw betalen.'):x.status==='paying'?'BETALING BEZIG — niet opnieuw betalen.':'AL GEREGISTREERD — geen tweede schuld.')+'\n'+describe(x)+'\nFoto bewaard in het dossier.',x.status==='paid'?'error':'warn');
     else notice('result','NIEUWE FACTUUR — document en foto opgeslagen. Geen eerdere match in dit archief. Controleer je bank vóór betaling.\n'+describe(x),'good');
     appendPhotos($('matchDetails'),x);$('verified').checked=false;
   }
@@ -284,7 +284,7 @@ function appendPhotos(parent,x){
    loadPhoto(d.photo_hash).then(blob=>{
      if(!blob){fig.append(node('small','Foto ontbreekt in lokale opslag.','muted'));return}
      if(!fig.isConnected)return;
-     const url=URL.createObjectURL(blob);archiveUrls.push(url);if(d.file_type!=='application/pdf')img.src=url;b.disabled=false;
+     const url=URL.createObjectURL(blob);archiveUrls.push(url);b.dataset.archiveUrl=url;if(d.file_type!=='application/pdf')img.src=url;b.disabled=false;
      b.textContent=d.file_type==='application/pdf'?'Open originele PDF':'Open originele foto';
      b.onclick=()=>{if(d.file_type==='application/pdf'){const link=document.createElement('a');link.href=url;link.target='_blank';link.rel='noopener';link.click();return}const dialog=$('photoDialog');$('fullPhoto').src=url;dialog.showModal()};
    }).catch(()=>fig.append(node('small','Foto kon niet worden geladen.','muted')));
@@ -330,7 +330,7 @@ async function mutateRow(x,fn){
 }
 function addPayment(x,partial=false){return run(async()=>{
  const balance=openBalance(x);if(balance<=0)throw Error('Geen openstaand saldo.');
- const input=partial?prompt('Werkelijk betaald bedrag in euro (max. '+money(balance)+')',''):String(balance/100);
+ const input=partial?prompt('Werkelijk betaald bedrag in euro (max. '+money(balance)+')',''):(balance/100).toFixed(2);
  if(input===null)return;const cents=amount(input);if(!cents||cents>balance)throw Error('Ongeldig betaalbedrag.');
  const when=prompt('Datum van de werkelijke bankbetaling (JJJJ-MM-DD)',localToday());if(when===null)return;if(!date(when)||when>localToday())throw Error('Ongeldige betalingsdatum.');
  const note=prompt('Optioneel: betalingsbewijsnummer of opmerking','');if(note===null)return;
@@ -349,14 +349,14 @@ function appendPayments(entry,x){
 function render(){
   renderDashboard();
   // Release URLs belonging to removed history cards; preserve result photos.
-  for(const url of archiveUrls.filter(u=>!Array.from(document.querySelectorAll('img')).some(img=>img.src===u))){URL.revokeObjectURL(url)}
-  archiveUrls=archiveUrls.filter(u=>Array.from(document.querySelectorAll('img')).some(img=>img.src===u));
+  for(const url of archiveUrls.filter(u=>!Array.from(document.querySelectorAll('img,[data-archive-url]')).some(img=>img.src===u||img.dataset.archiveUrl===u))){URL.revokeObjectURL(url)}
+  archiveUrls=archiveUrls.filter(u=>Array.from(document.querySelectorAll('img,[data-archive-url]')).some(img=>img.src===u||img.dataset.archiveUrl===u));
   const q=norm($('search').value),filter=$('filter').value,cat=$('categoryFilter').value;
   const list=items.filter(x=>(!cat||(x.category||'Overige')===cat)&&(!filter||(filter==='review'?x.review_required:filter==='partial'?!x.review_required&&openBalance(x)>0&&(x.payments||[]).some(p=>p.kind==='payment'&&!(x.payments||[]).some(r=>r.kind==='reversal'&&r.reverses===p.id)):!x.review_required&&x.status===filter))&&(!q||norm([x.supplier,x.invoice_no,x.reference,x.iban,x.related_ids,...(x.documents||[]).flatMap(d=>[d.invoice_no,d.related_ids,d.reference,d.supplier])].join(' ')).includes(q)));
   $('summary').textContent=items.length+' facturen · '+items.filter(x=>x.status==='paid'&&!x.review_required).length+' betaald · '+items.filter(x=>x.status==='paying'&&!x.review_required).length+' bezig · '+items.filter(x=>x.status==='unpaid'&&!x.review_required).length+' open · '+items.filter(x=>x.review_required).length+' controleren';
   const history=$('history');history.replaceChildren();
-  for(const url of archiveUrls.filter(u=>!Array.from(document.querySelectorAll('img')).some(img=>img.src===u)))URL.revokeObjectURL(url);
-  archiveUrls=archiveUrls.filter(u=>Array.from(document.querySelectorAll('img')).some(img=>img.src===u));
+  for(const url of archiveUrls.filter(u=>!Array.from(document.querySelectorAll('img,[data-archive-url]')).some(img=>img.src===u||img.dataset.archiveUrl===u)))URL.revokeObjectURL(url);
+  archiveUrls=archiveUrls.filter(u=>Array.from(document.querySelectorAll('img,[data-archive-url]')).some(img=>img.src===u||img.dataset.archiveUrl===u));
   if(!list.length)history.append(node('p','Geen facturen gevonden.','muted'));
   for(const x of list){
     const outer=node('article',undefined,'entry entry-layout'),entry=node('div'),line=node('div',undefined,'line');
@@ -382,7 +382,7 @@ function changeStatus(x,next){return run(async()=>{
   try{
     if(mode==='local'){
       await withLocalLock(async()=>{const rows=readLocal(),row=rows.find(y=>y.id===x.id);
-      if(!row||row.status!==x.status)throw Error('Status gewijzigd. Vernieuw de lijst.');
+      if(!row||JSON.stringify(row)!==JSON.stringify(x))throw Error('Dossier gewijzigd. Vernieuw de lijst.');
       if(row.review_required&&row.status!=='paying')throw Error('Controleer eerst het dossier.');
       if(next==='paying'&&openBalance(row)<=0)throw Error('Geen openstaand saldo.');row.status=next;row.paid_at=null;saveLocal(rows);});
     }else await rpc('set_invoice_status',{p_id:x.id,p_expected:x.status,p_next:next});
