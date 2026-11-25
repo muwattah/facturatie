@@ -37,7 +37,7 @@ function enter(next){
   notice('global');resetForm();render();
 }
 $('local').onclick=()=>run(async()=>{readLocal();enter('local');await refresh()},'setupMessage');
-try{const c=JSON.parse(localStorage.getItem(CONFIG)||'null');if(c){$('url').value=c.url;$('key').value=c.key;$('email').value=c.email;$('cloud').open=true}}catch{}
+try{const c=JSON.parse(localStorage.getItem(CONFIG)||'null');if(c){$('email').value=c.email;$('cloud').open=true}}catch{}
 function validateConfig(){
   const url=new URL($('url').value.trim()), key=$('key').value.trim();
   if(url.protocol!=='https:'||!/^[a-z0-9-]+\.supabase\.co$/.test(url.hostname)||url.pathname!=='/'||url.search||url.hash||url.port||url.username||url.password)throw Error('Gebruik de HTTPS project-URL van Supabase, zonder pad.');
@@ -53,7 +53,7 @@ $('login').onsubmit=e=>{e.preventDefault();run(async()=>{
   const {error}=await client.auth.signInWithPassword({email:config.email,password:$('password').value});
   $('password').value='';if(error)throw error;
   cloudAdapter=createCloudAdapter(client);
-  try{const auth=await client.auth.getUser();if(auth.error||!auth.data.user)throw Error('Ongeldige sessie.');actorId=auth.data.user.id;const initial=await cloudAdapter.load();localStorage.setItem(CONFIG,JSON.stringify(config));enter('cloud');items=initial;render()}catch(e){await client.auth.signOut();cloudAdapter=null;actorId=null;client=null;throw e}
+  try{const auth=await client.auth.getUser();if(auth.error||!auth.data.user)throw Error('Ongeldige sessie.');actorId=auth.data.user.id;const initial=await cloudAdapter.load();localStorage.setItem(CONFIG,JSON.stringify({email:config.email}));enter('cloud');items=initial;render()}catch(e){await client.auth.signOut();cloudAdapter=null;actorId=null;client=null;throw e}
 },'setupMessage')};
 $('logout').onclick=()=>run(async()=>{
   if(mode==='cloud'&&cloudAdapter)await cloudAdapter.logout();
