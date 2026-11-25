@@ -26,8 +26,7 @@ export function decideRegistration(rows,v,choice={}){
  if(selected){
    const old=selected.invoice,docs=old.documents||[];
    const duplicatePhoto=docs.some(d=>d.photo_hash===doc.photo_hash);
-   const review=!!old.review_required||selected.kind!=='exact'||v.amount_cents!==old.amount_cents||
-     ['credit','collection'].includes(v.document_type);
+   const review=!!old.review_required||(!duplicatePhoto&&(selected.kind!=='exact'||v.amount_cents!==old.amount_cents||['credit','collection'].includes(v.document_type)));
    const invoice={...old,documents:duplicatePhoto?docs:[...docs,doc],review_required:review};
    if(review&&!old.review_required)invoice.review_reason='Gewijzigd of gekoppeld document: controleer bank en leverancier.';
    return {kind:review?'review':'exact',invoice,rows:rows.map(x=>x.id===old.id?invoice:x),reasons:selected.reasons};
