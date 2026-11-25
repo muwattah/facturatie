@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {norm,reference,amount,iban,date,extract,extractDetailed,mergeExtractions,match} from '../core.mjs';
+import {norm,reference,amount,iban,date,extract,extractDetailed,mergeExtractions,match,documentInfo,compareInvoice,supplierKey} from '../core.mjs';
 const base={supplier:'Engie',invoice_no:'INV-1',amount_cents:12500,invoice_date:'2026-11-01',reference:'',iban:''};
 test('Belgian and international euro amounts',()=>{assert.equal(amount('1.234,56'),123456);assert.equal(amount('1,234.56'),123456);assert.equal(amount('12,3'),null);assert.equal(amount('0'),null)});
 test('Belgian structured reference checksum',()=>{assert.equal(reference('+++123/4567/89002+++'),'123456789002');assert.equal(reference('123456789003'),'')});
@@ -58,3 +58,14 @@ test('Prefer actual payable amount to generic total',()=>{
 test('Correct typical OGM OCR substitutions only after checksum validation',()=>{
  const x=extract('+++123/4567/89O02+++');assert.equal(x.reference,'123456789002');
 });
+
+test('Public authority and amount on next line',()=>{const x=extract('Stad Antwerpen\nAanslagbiljet\nKohierartikel: 2026-0007\nVerschuldigd bedrag\n€ 45,00');assert.equal(x.supplier,'Stad Antwerpen');assert.equal(x.invoice_no,'2026-0007');assert.equal(x.amount_cents,4500)});
+test('Municipality without corporate suffix',()=>{const x=extract('Gemeente Edegem\nDossiernummer: AB-123456\nOpenstaand saldo: EUR 75,00');assert.equal(x.supplier,'Gemeente Edegem');assert.equal(x.amount_cents,7500)});
+test('Government supplier and unlabeled euro amount',()=>{const x=extract('FOD Financiën\nBetalingskenmerk: ABC123\n€ 125,00');assert.equal(x.supplier,'FOD Financiën');assert.equal(x.amount_cents,12500)});
+test('OCR misspelling and spaces around decimal',()=>{const x=extract('Stad Antwrerpen\nTe betalen bedrag 15 , 50');assert.equal(x.supplier,'Stad Antwerpen');assert.equal(x.amount_cents,1550)});
+test('Reminder metadata and payable amount',()=>{const raw='Stad Antwerpen\nHERINNERING\nOorspronkelijke factuur: AB-123456\nHoofdsom 50,00\nHerinneringskosten 10,00\nNog te betalen 60,00';assert.equal(extract(raw).amount_cents,6000);const i=documentInfo(raw);assert.equal(i.document_type,'reminder');assert.equal(i.related_ids,'AB-123456');assert.equal(i.original_cents,5000);assert.equal(i.fee_cents,1000)});
+test('Same invoice number with higher amount requires review',()=>assert.equal(compareInvoice({...base,amount_cents:13000,document_type:'reminder'},base).kind,'changed'));
+test('Different reminder number and original identifier is possible',()=>assert.equal(compareInvoice({...base,invoice_no:'R-2',related_ids:'INV-1',amount_cents:13000,document_type:'reminder'},base).kind,'possible'));
+test('Different supplier with same reference does not automatically mean paid',()=>assert.equal(compareInvoice({...base,reference:'123456789002',supplier:'Other'},{...base,reference:'123456789002'}).kind,'possible'));
+test('Municipal alias',()=>assert.equal(supplierKey('Antwerpen'),supplierKey('Stad Antwerpen')));
+test('Same photo even when supplier OCR differs',()=>assert.equal(compareInvoice({...base,supplier:'Other',photo_hash:'xyz'},{...base,photo_hash:'xyz'}).kind,'exact'));
