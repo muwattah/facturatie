@@ -72,8 +72,8 @@ function applyText(){
   const x=extract($('raw').value);
   for(const k of ['invoice_no','invoice_date','reference','iban'])$(k).value=x[k]||'';
   $('amount').value=x.amount_cents?(x.amount_cents/100).toFixed(2).replace('.',','):'';
-  $('supplier').value='';$('verified').checked=false;pending=null;$('override').hidden=true;
-  notice('result');notice('scanMessage','Controleer alle velden en vul de leverancier in. Ontbrekende of foutieve informatie kun je corrigeren.','warn');
+  $('supplier').value=x.supplier||'';$('verified').checked=false;pending=null;$('override').hidden=true;
+  notice('result');notice('scanMessage','Controleer alle velden, ook de voorgestelde leverancier, of vul ze zelf in. Ontbrekende of foutieve informatie kun je corrigeren.','warn');
 }
 $('parse').onclick=()=>{if(!busy)applyText()};
 $('scan').onclick=()=>run(async()=>{
@@ -148,7 +148,7 @@ function render(){
     entry.append(node('p',[x.invoice_no?'Nr. '+x.invoice_no:'',x.invoice_date||'',x.reference?'Mededeling '+x.reference:''].filter(Boolean).join(' · '),'muted'));
     if(x.paid_at)entry.append(node('small','Betaling bevestigd: '+new Date(x.paid_at).toLocaleString('nl-BE')));
     const buttons=node('div',undefined,'actions');
-    if(x.status==='unpaid')action(buttons,'Ik ga betalen','',()=>changeStatus(x,'paying'));
+    if(x.status==='unpaid'){action(buttons,'Ik ga betalen','',()=>changeStatus(x,'paying'));action(buttons,'Al eerder betaald','secondary',()=>changeStatus(x,'paid'));}
     if(x.status==='paying'){
       action(buttons,'Betaling bevestigen','',()=>changeStatus(x,'paid'));
       action(buttons,'Reservering vrijgeven','secondary',()=>changeStatus(x,'unpaid'));
@@ -158,7 +158,7 @@ function render(){
   }
 }
 function changeStatus(x,next){return run(async()=>{
-  const prompt=next==='paying'?'Reserveer deze factuur alleen als jij de betaling gaat uitvoeren. Controleer eerst je bank.':next==='paid'?'Bevestig je dat deze factuur effectief via je bank betaald is?':'Zet alleen terug op nog te betalen als er geen betaling werd uitgevoerd of onderweg is. Doorgaan?';
+  const prompt=next==='paying'?'Reserveer deze factuur alleen als jij de betaling gaat uitvoeren. Controleer eerst je bank.':next==='paid'?(x.status==='unpaid'?'Is deze factuur volgens je bank al eerder betaald? Registreer dit alleen, betaal niet opnieuw.':'Bevestig je dat deze factuur effectief via je bank betaald is?'):'Zet alleen terug op nog te betalen als er geen betaling werd uitgevoerd of onderweg is. Doorgaan?';
   if(!confirm(prompt))return;
   notice('global');
   try{
