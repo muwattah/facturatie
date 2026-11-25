@@ -1,0 +1,14 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {norm,reference,amount,iban,date,extract,match} from '../core.mjs';
+const base={supplier:'Engie',invoice_no:'INV-1',amount_cents:12500,invoice_date:'2026-11-01',reference:'',iban:''};
+test('Belgian and international euro amounts',()=>{assert.equal(amount('1.234,56'),123456);assert.equal(amount('1,234.56'),123456);assert.equal(amount('12,3'),null);assert.equal(amount('0'),null)});
+test('Belgian structured reference checksum',()=>{assert.equal(reference('+++123/4567/89002+++'),'123456789002');assert.equal(reference('123456789003'),'')});
+test('IBAN checksum',()=>{assert.equal(iban('BE68 5390 0754 7034'),'BE68539007547034');assert.equal(iban('BE69 5390 0754 7034'),'')});
+test('Date validation',()=>{assert.equal(date('31/02/2026'),'');assert.equal(date('01/11/2026'),'2026-11-01')});
+test('Same invoice with punctuation/case differences',()=>assert.equal(match(base,{...base,supplier:'ENGIE!'}),'exact'));
+test('Same structured reference',()=>assert.equal(match({...base,reference:'123456789002'},{...base,invoice_no:'OTHER',reference:'123456789002'}),'exact'));
+test('Same supplier and amount with different number is only possible',()=>assert.equal(match(base,{...base,invoice_no:'INV-2'}),'possible'));
+test('Distant recurring invoices are distinct',()=>assert.equal(match(base,{...base,invoice_no:'INV-2',invoice_date:'2027-03-01'}),''));
+test('Same amount, different supplier is not sufficient',()=>assert.equal(match(base,{...base,supplier:'Other',invoice_no:'INV-2'}),''));
+test('Extract labeled OCR data',()=>{const x=extract('Factuurnummer: INV-1\nFactuurdatum: 01/11/2026\nTotaal te betalen € 1.234,56');assert.equal(x.amount_cents,123456);assert.equal(x.invoice_no,'INV-1');assert.equal(x.invoice_date,'2026-11-01')});
