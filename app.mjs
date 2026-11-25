@@ -1,4 +1,4 @@
-import {norm,reference,amount,iban,date,extract,match} from './core.mjs';
+import {norm,reference,amount,iban,date,extractDetailed,mergeExtractions,match} from './core.mjs?v=0.2.0';
 const $=id=>document.getElementById(id);
 const LOCAL='factuurcheck.local.v1', CONFIG='factuurcheck.config.v1';
 let mode='', client=null, items=[], file=null, previewUrl='', pending=null, busy=false;
@@ -8,7 +8,7 @@ function notice(id,message='',kind=''){const e=$(id);e.textContent=message;e.cla
 function errorText(e){return e?.message||String(e)}
 async function run(fn,where='global'){
   if(busy)return;busy=true;
-  const buttons=[...document.querySelectorAll('button')].filter(b=>!b.disabled);
+  const buttons=[...document.querySelectorAll('button,input,textarea,select')].filter(b=>!b.disabled);
   buttons.forEach(b=>b.disabled=true);
   try{await fn()}catch(e){notice(where,errorText(e),'error')}
   finally{busy=false;buttons.forEach(b=>b.disabled=false);$('scan').disabled=!file}
@@ -60,6 +60,7 @@ $('logout').onclick=()=>run(async()=>{
 });
 function choose(f){
   if(busy)return;
+  $('raw').value='';$('invoiceForm').reset();$('ocrDetails').replaceChildren();for(const k of Object.keys(fieldLabels))$(fieldId(k)).classList.remove('needs-review');notice('result');notice('scanMessage');
   if(previewUrl)URL.revokeObjectURL(previewUrl);previewUrl='';file=null;
   $('preview').hidden=true;$('preview').removeAttribute('src');
   if(f){if(!f.type.startsWith('image/')||f.size>20*1024*1024){notice('scanMessage','Kies een afbeelding van maximaal 20 MB.','error')}
@@ -68,31 +69,120 @@ function choose(f){
 }
 $('camera').onchange=()=>{$('file').value='';choose($('camera').files[0])};
 $('file').onchange=()=>{$('camera').value='';choose($('file').files[0])};
-function applyText(){
-  const x=extract($('raw').value);
-  for(const k of ['invoice_no','invoice_date','reference','iban'])$(k).value=x[k]||'';
-  $('amount').value=x.amount_cents?(x.amount_cents/100).toFixed(2).replace('.',','):'';
-  $('supplier').value=x.supplier||'';$('verified').checked=false;pending=null;$('override').hidden=true;
-  notice('result');notice('scanMessage','Controleer alle velden, ook de voorgestelde leverancier, of vul ze zelf in. Ontbrekende of foutieve informatie kun je corrigeren.','warn');
+const fieldLabels={supplier:'Leverancier',invoice_no:'Factuurnummer',invoice_date:'Factuurdatum',amount_cents:'Bedrag',reference:'Gestructureerde mededeling',iban:'IBAN'};
+const fieldId=k=>k==='amount_cents'?'amount':k;
+const fieldValue=(k,v)=>k==='amount_cents'?(v===null||v===''?'':(v/100).toFixed(2).replace('.',',')):v||'';
+const present=(k,v)=>k==='amount_cents'?money(v):v;
+function applyText(result=extractDetailed($('raw').value)){
+  const {fields,details}=result;
+  const panel=$('ocrDetails');panel.replaceChildren();
+  let count=0;const uncertain=[],missing=[];
+  for(const [k,label] of Object.entries(fieldLabels)){
+    const el=$(fieldId(k)),d=details[k],value=fields[k];
+    el.value=fieldValue(k,value);el.classList.toggle('needs-review',!value||d.weak||d.ambiguous);
+    if(value)count++;
+    if(d.ambiguous)uncertain.push(label);
+    else if(!value)missing.push(label);
+    else if(d.weak)uncertain.push(label);
+    if(!value||d.weak||d.ambiguous||d.alternatives.length>1){
+      const div=node('div',undefined,'ocr-field');
+      div.append(node('strong',label+' — '+(d.ambiguous?'meerdere mogelijke waarden':!value?'niet zeker herkend':d.weak?'voorstel controleren':'alternatieven')));
+      for(const c of d.alternatives.slice(0,4)){
+        const b=node('button',String(present(k,c.value)),'secondary');
+        b.type='button';b.onclick=()=>{if(busy)return;el.value=fieldValue(k,c.value);el.classList.remove('needs-review');$('verified').checked=false;pending=null;$('override').hidden=true;notice('result');};
+        const choice=node('div',undefined,'ocr-choice');choice.append(b,node('small',c.source,'muted'));div.append(choice);
+      }
+      if(!d.alternatives.length)div.append(node('small','Geen betrouwbaar tekstfragment gevonden. Controleer de foto of vul dit veld in.','muted'));
+      panel.append(div);
+    }
+  }
+  $('verified').checked=false;pending=null;$('override').hidden=true;
+  notice('result');
+  const msg=count+' van 6 velden voorgesteld. Controleer alle gegevens met de originele factuur.'
+    +(missing.length?'\nNiet ingevuld: '+missing.join(', ')+'.':'')
+    +(uncertain.length?'\nExtra controleren: '+uncertain.join(', ')+'.':'');
+  notice('scanMessage',msg,missing.length||uncertain.length?'warn':'good');
 }
-$('parse').onclick=()=>{if(!busy)applyText()};
+$('parse').onclick=()=>{if(!busy){const raw=$('raw').value;const chunks=raw.split(/^--- (?:Normale scan|Contrastscan|Verspreide tekst) ---\s*$/m).filter(t=>t.trim());applyText(chunks.length>1?mergeExtractions(chunks.map(extractDetailed)):extractDetailed(chunks[0]||raw));}};
+async function decodeImage(blob){
+  if(typeof createImageBitmap==='function'){
+    try{return await createImageBitmap(blob)}catch{}
+  }
+  const url=URL.createObjectURL(blob);
+  try{const image=new Image();image.src=url;await image.decode();return image}
+  finally{URL.revokeObjectURL(url)}
+}
+async function prepareImages(blob){
+  const image=await decodeImage(blob);
+  try{
+    const w=image.width,h=image.height;
+    if(!w||!h)throw Error('Deze afbeelding kan niet worden geopend. Probeer JPG of PNG.');
+    // Preserve fine print while bounding memory use on smartphones.
+    const long=Math.max(w,h),scale=Math.min(3000/long,Math.sqrt(7000000/(w*h)),long<1700?Math.min(2,2200/long):1);
+    const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(w*scale));canvas.height=Math.max(1,Math.round(h*scale));
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});
+    if(!ctx)throw Error('Afbeeldingsverwerking is niet beschikbaar.');
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,0,0,canvas.width,canvas.height);
+    const enhanced=document.createElement('canvas');enhanced.width=canvas.width;enhanced.height=canvas.height;
+    const e=enhanced.getContext('2d',{willReadFrequently:true});if(!e)throw Error('Afbeeldingsverwerking is niet beschikbaar.');
+    e.drawImage(canvas,0,0);
+    const data=e.getImageData(0,0,enhanced.width,enhanced.height),pixels=data.data,hist=new Uint32Array(256);
+    for(let i=0;i<pixels.length;i+=4){const gray=Math.round(.299*pixels[i]+.587*pixels[i+1]+.114*pixels[i+2]);hist[gray]++}
+    const total=pixels.length/4;let lo=0,hi=255,n=0;
+    for(;lo<255;lo++){n+=hist[lo];if(n>=total*.015)break}
+    n=0;for(;hi>0;hi--){n+=hist[hi];if(n>=total*.015)break}
+    if(hi-lo<35){lo=0;hi=255}
+    for(let i=0;i<pixels.length;i+=4){const gray=.299*pixels[i]+.587*pixels[i+1]+.114*pixels[i+2];const v=Math.max(0,Math.min(255,Math.round((gray-lo)*255/(hi-lo))));pixels[i]=pixels[i+1]=pixels[i+2]=v}
+    e.putImageData(data,0,0);
+    return [canvas,enhanced];
+  }finally{if(typeof image.close==='function')image.close()}
+}
 $('scan').onclick=()=>run(async()=>{
   if(!file)throw Error('Kies eerst een afbeelding.');
   if(!window.Tesseract)throw Error('OCR-bibliotheek niet geladen. Controleer internet.');
-  $('progress').hidden=false;$('progress').value=0;notice('scanMessage','OCR wordt geladen. De eerste scan kan langer duren.');
-  let worker;
+  $('progress').hidden=false;$('progress').value=0;notice('scanMessage','Afbeelding voorbereiden en OCR laden…');
+  let worker,images,step=0,passes=[],texts=[];
   try{
-    worker=await window.Tesseract.createWorker(['nld','fra','eng'],1,{logger:m=>{if(m.status==='recognizing text'){$('progress').value=m.progress||0;notice('scanMessage','Tekst wordt uitgelezen…')}}});
-    const result=await worker.recognize(file);$('raw').value=result.data.text;
-    if(!result.data.text.trim())throw Error('Geen tekst gevonden. Maak een scherpere foto of vul de gegevens handmatig in.');
-    applyText();
-  }finally{if(worker)await worker.terminate();$('progress').hidden=true}
+    images=await prepareImages(file);
+    worker=await window.Tesseract.createWorker(['nld','fra','eng'],1,{logger:m=>{
+      if(m.status==='recognizing text'){
+        $('progress').value=Math.min(0.99,(step+(m.progress||0))/3);
+        notice('scanMessage','Scanronde '+(step+1)+' van maximaal 3: tekst uitlezen…');
+      }
+    }});
+    async function recognize(image,psm,name){
+      await worker.setParameters({tessedit_pageseg_mode:String(psm),preserve_interword_spaces:'1'});
+      const r=await worker.recognize(image);
+      if(r.data.text.trim()){
+        texts.push({name,text:r.data.text});
+        passes.push(extractDetailed(r.data.text));
+      }
+      step++;
+    }
+    // Original layout first, then contrast-corrected image with automatic
+    // layout. Sparse text recovers text in boxes, logos and payment slips.
+    await recognize(images[0],3,'Normale scan');
+    await recognize(images[1],3,'Contrastscan');
+    let merged=mergeExtractions(passes);
+    if(Object.values(merged.details).some(x=>!x.value||x.weak||x.ambiguous)){
+      await recognize(images[1],11,'Verspreide tekst');
+      merged=mergeExtractions(passes);
+    }
+    if(!passes.length)throw Error('Geen tekst gevonden. Maak een scherpere, rechte foto of vul de gegevens handmatig in.');
+    // Keep OCR passes separate when extracting so unrelated lines do not merge.
+    $('raw').value=texts.map(t=>'--- '+t.name+' ---\n'+t.text).join('\n\n');
+    $('progress').value=1;applyText(merged);
+  }finally{
+    if(worker)await worker.terminate();
+    if(images)for(const image of images){image.width=1;image.height=1}
+    $('progress').hidden=true;
+  }
 },'scanMessage');
 function resetForm(){
   // Also called while an operation is busy, so clear the image directly.
   if(previewUrl)URL.revokeObjectURL(previewUrl);previewUrl='';file=null;
   $('preview').hidden=true;$('preview').removeAttribute('src');$('camera').value='';$('file').value='';$('scan').disabled=true;
-  $('raw').value='';$('invoiceForm').reset();pending=null;$('override').hidden=true;notice('scanMessage');notice('result');
+  $('raw').value='';$('invoiceForm').reset();$('ocrDetails').replaceChildren();for(const k of Object.keys(fieldLabels))$(fieldId(k)).classList.remove('needs-review');pending=null;$('override').hidden=true;notice('scanMessage');notice('result');
 }
 $('reset').onclick=()=>{if(!busy)resetForm()};
 $('invoiceForm').oninput=()=>{pending=null;$('override').hidden=true;notice('result');};
