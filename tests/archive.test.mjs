@@ -1,0 +1,14 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {decideRegistration,resolveReview} from '../archive.mjs';
+const v={supplier:'Stad Antwerpen',invoice_no:'A-123456',reference:'',iban:'',invoice_date:'2026-11-26',amount_cents:5000,document_type:'invoice',photo_hash:'p1'};
+const choice={documentId:'d1',invoiceId:'i1',now:'2026-11-26T12:00:00Z'};
+const first=()=>decideRegistration([],v,choice);
+test('New invoice keeps original document',()=>{const x=first();assert.equal(x.kind,'new');assert.equal(x.invoice.documents[0].photo_hash,'p1')});
+test('Identical scan retains one document',()=>{const x=first();const y=decideRegistration(x.rows,v,choice);assert.equal(y.kind,'exact');assert.equal(y.invoice.documents.length,1)});
+test('Higher reminder of paid invoice puts dossier on hold',()=>{const x=first();const row={...x.invoice,status:'paid',paid_at:choice.now};const y=decideRegistration([row],{...v,document_type:'reminder',amount_cents:6000,photo_hash:'p2'}, {...choice,documentId:'d2'});assert.equal(y.kind,'review');assert.equal(y.invoice.status,'paid');assert.equal(y.invoice.amount_cents,5000);assert.equal(y.invoice.documents.length,2);assert.equal(y.invoice.review_required,true)});
+test('Confirmed extra balance retains audit of original payment',()=>{const x=first();const y=resolveReview({...x.invoice,status:'paid',paid_at:choice.now,review_required:true},1000,choice.now);assert.equal(y.amount_cents,1000);assert.equal(y.status,'unpaid');assert.equal(y.reviews[0].previous_amount_cents,5000);assert.equal(y.reviews[0].previous_status,'paid')});
+test('Zero confirmed balance closes dossier without new payment',()=>{const x=first();const y=resolveReview({...x.invoice,review_required:true},0,choice.now);assert.equal(y.status,'paid');assert.equal(y.review_required,false)});
+test('Unmatched reminder stays on hold',()=>{const x=decideRegistration([],{...v,document_type:'reminder'},choice);assert.equal(x.kind,'review');assert.equal(x.invoice.review_required,true)});
+test('Related reminder must be linked explicitly',()=>{const x=first();const w={...v,invoice_no:'R-98765',related_ids:v.invoice_no,amount_cents:6000,document_type:'reminder',photo_hash:'p2'};const y=decideRegistration(x.rows,w,choice);assert.equal(y.kind,'possible');const z=decideRegistration(x.rows,w,{...choice,linkId:'i1'});assert.equal(z.kind,'review');assert.equal(z.rows.length,1)});
+test('Previously reconciled identical image does not reopen dossier',()=>{const x=first();const row=resolveReview({...x.invoice,review_required:true},1000,choice.now);const y=decideRegistration([row],v,choice);assert.equal(y.invoice.review_required,false);assert.equal(y.invoice.amount_cents,1000)});
