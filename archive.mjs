@@ -1,4 +1,4 @@
-import {compareInvoice} from './core.mjs?v=0.3.0';
+import {compareInvoice} from './core.mjs?v=0.4.0';
 export const documentLabels={invoice:'Factuur / aanslag / betalingsverzoek',reminder:'Herinnering / aanmaning',collection:'Incasso / dwangbevel',credit:'Creditnota'};
 export function findMatches(v,rows){
  const rank={changed:3,exact:2,possible:1};
@@ -26,13 +26,13 @@ export function decideRegistration(rows,v,choice={}){
  if(selected){
    const old=selected.invoice,docs=old.documents||[];
    const duplicatePhoto=docs.some(d=>d.photo_hash===doc.photo_hash);
-   const review=!!old.review_required||(!duplicatePhoto&&(selected.kind!=='exact'||v.amount_cents!==old.amount_cents||['credit','collection'].includes(v.document_type)));
+   const review=!!old.review_required||(!duplicatePhoto&&(selected.kind!=='exact'||v.amount_cents!==old.amount_cents||['credit','collection'].includes(v.document_type)||v.document_type==='reminder'&&old.status==='paid'));
    const invoice={...old,documents:duplicatePhoto?docs:[...docs,doc],review_required:review};
    if(review&&!old.review_required)invoice.review_reason='Gewijzigd of gekoppeld document: controleer bank en leverancier.';
    return {kind:review?'review':'exact',invoice,rows:rows.map(x=>x.id===old.id?invoice:x),reasons:selected.reasons};
  }
  const review=v.document_type!=='invoice';
- const invoice={...v,id:choice.invoiceId,status:'unpaid',created_at:choice.now,paid_at:null,documents:[doc],review_required:review,
+ const invoice={...v,id:choice.invoiceId,status:'unpaid',open_cents:v.amount_cents,created_at:choice.now,paid_at:null,documents:[doc],review_required:review,
    review_reason:review?'Geen bevestigde oorspronkelijke factuur: controleer de bank en de leverancier.':''};
  return {kind:review?'review':'new',invoice,rows:[invoice,...rows]};
 }
