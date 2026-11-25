@@ -1,7 +1,9 @@
-import {norm,reference,amount,iban,date,extractDetailed,mergeExtractions,match} from './core.mjs?v=0.2.0';
+import {norm,reference,amount,iban,date,extractDetailed,mergeExtractions,documentInfo} from './core.mjs?v=0.3.0';
+import {documentLabels,decideRegistration,resolveReview,photoHash,savePhoto,loadPhoto,clearPhotos} from './archive.mjs?v=0.3.0';
 const $=id=>document.getElementById(id);
 const LOCAL='factuurcheck.local.v1', CONFIG='factuurcheck.config.v1';
-let mode='', client=null, items=[], file=null, previewUrl='', pending=null, busy=false;
+let mode='', client=null, items=[], file=null, previewUrl='', pending=null, busy=false, archiveUrls=[];
+function clearArchiveUrls(){archiveUrls.forEach(URL.revokeObjectURL);archiveUrls=[]}
 const labels={unpaid:'Nog te betalen',paying:'Betaling bezig',paid:'Betaald'};
 const money=cents=>new Intl.NumberFormat('nl-BE',{style:'currency',currency:'EUR'}).format(cents/100);
 function notice(id,message='',kind=''){const e=$(id);e.textContent=message;e.className='notice '+kind;e.hidden=!message}
@@ -36,6 +38,7 @@ function enter(next){
 $('local').onclick=()=>run(async()=>{readLocal();enter('local');await refresh()},'setupMessage');
 try{const c=JSON.parse(localStorage.getItem(CONFIG)||'null');if(c){$('url').value=c.url;$('key').value=c.key;$('email').value=c.email;$('cloud').open=true}}catch{}
 function validateConfig(){
+  throw Error('Gezinsmodus is tijdelijk uitgeschakeld voor v0.3.0: het nieuwe fotoarchief en herinneringsdossiers moeten eerst beveiligd worden geïmplementeerd en getest in Supabase. Gebruik lokale testmodus.');
   const url=new URL($('url').value.trim()), key=$('key').value.trim();
   if(url.protocol!=='https:'||!/^[a-z0-9-]+\.supabase\.co$/.test(url.hostname)||url.pathname!=='/'||url.search||url.hash||url.port||url.username||url.password)throw Error('Gebruik de HTTPS project-URL van Supabase, zonder pad.');
   if(!key.startsWith('sb_publishable_')){
@@ -56,16 +59,16 @@ $('login').onsubmit=e=>{e.preventDefault();run(async()=>{
 },'setupMessage')};
 $('logout').onclick=()=>run(async()=>{
   if(mode==='cloud'&&client){const {error}=await client.auth.signOut();if(error)throw error}
-  client=null;mode='';items=[];resetForm();render();$('workspace').hidden=true;$('setup').hidden=false;
+  client=null;mode='';items=[];resetForm();render();clearArchiveUrls();$('workspace').hidden=true;$('setup').hidden=false;
 });
 function choose(f){
   if(busy)return;
-  $('raw').value='';$('invoiceForm').reset();$('ocrDetails').replaceChildren();for(const k of Object.keys(fieldLabels))$(fieldId(k)).classList.remove('needs-review');notice('result');notice('scanMessage');
+  $('raw').value='';$('invoiceForm').reset();$('ocrDetails').replaceChildren();$('matchDetails').replaceChildren();for(const k of Object.keys(fieldLabels))$(fieldId(k)).classList.remove('needs-review');notice('result');notice('scanMessage');
   if(previewUrl)URL.revokeObjectURL(previewUrl);previewUrl='';file=null;
   $('preview').hidden=true;$('preview').removeAttribute('src');
   if(f){if(!f.type.startsWith('image/')||f.size>20*1024*1024){notice('scanMessage','Kies een afbeelding van maximaal 20 MB.','error')}
     else{file=f;previewUrl=URL.createObjectURL(file);$('preview').src=previewUrl;$('preview').hidden=false;notice('scanMessage','Afbeelding klaar om uit te lezen.');}}
-  $('scan').disabled=!file;pending=null;$('override').hidden=true;
+  $('scan').disabled=!file;pending=null;$('override').hidden=true;$('matchDetails').replaceChildren();
 }
 $('camera').onchange=()=>{$('file').value='';choose($('camera').files[0])};
 $('file').onchange=()=>{$('camera').value='';choose($('file').files[0])};
@@ -75,6 +78,7 @@ const fieldValue=(k,v)=>k==='amount_cents'?(v===null||v===''?'':(v/100).toFixed(
 const present=(k,v)=>k==='amount_cents'?money(v):v;
 function applyText(result=extractDetailed($('raw').value)){
   const {fields,details}=result;
+  const info=documentInfo($('raw').value);$('document_type').value=info.document_type;$('related_ids').value=info.related_ids;$('original_amount').value=fieldValue('amount_cents',info.original_cents);$('fee_amount').value=fieldValue('amount_cents',info.fee_cents);
   const panel=$('ocrDetails');panel.replaceChildren();
   let count=0;const uncertain=[],missing=[];
   for(const [k,label] of Object.entries(fieldLabels)){
@@ -89,14 +93,14 @@ function applyText(result=extractDetailed($('raw').value)){
       div.append(node('strong',label+' — '+(d.ambiguous?'meerdere mogelijke waarden':!value?'niet zeker herkend':d.weak?'voorstel controleren':'alternatieven')));
       for(const c of d.alternatives.slice(0,4)){
         const b=node('button',String(present(k,c.value)),'secondary');
-        b.type='button';b.onclick=()=>{if(busy)return;el.value=fieldValue(k,c.value);el.classList.remove('needs-review');$('verified').checked=false;pending=null;$('override').hidden=true;notice('result');};
+        b.type='button';b.onclick=()=>{if(busy)return;el.value=fieldValue(k,c.value);el.classList.remove('needs-review');$('verified').checked=false;pending=null;$('override').hidden=true;$('matchDetails').replaceChildren();notice('result');};
         const choice=node('div',undefined,'ocr-choice');choice.append(b,node('small',c.source,'muted'));div.append(choice);
       }
       if(!d.alternatives.length)div.append(node('small','Geen betrouwbaar tekstfragment gevonden. Controleer de foto of vul dit veld in.','muted'));
       panel.append(div);
     }
   }
-  $('verified').checked=false;pending=null;$('override').hidden=true;
+  $('verified').checked=false;pending=null;$('override').hidden=true;$('matchDetails').replaceChildren();
   notice('result');
   const msg=count+' van 6 velden voorgesteld. Controleer alle gegevens met de originele factuur.'
     +(missing.length?'\nNiet ingevuld: '+missing.join(', ')+'.':'')
@@ -182,69 +186,120 @@ function resetForm(){
   // Also called while an operation is busy, so clear the image directly.
   if(previewUrl)URL.revokeObjectURL(previewUrl);previewUrl='';file=null;
   $('preview').hidden=true;$('preview').removeAttribute('src');$('camera').value='';$('file').value='';$('scan').disabled=true;
-  $('raw').value='';$('invoiceForm').reset();$('ocrDetails').replaceChildren();for(const k of Object.keys(fieldLabels))$(fieldId(k)).classList.remove('needs-review');pending=null;$('override').hidden=true;notice('scanMessage');notice('result');
+  $('raw').value='';$('invoiceForm').reset();$('ocrDetails').replaceChildren();for(const k of Object.keys(fieldLabels))$(fieldId(k)).classList.remove('needs-review');pending=null;$('override').hidden=true;$('matchDetails').replaceChildren();notice('scanMessage');notice('result');
 }
 $('reset').onclick=()=>{if(!busy)resetForm()};
-$('invoiceForm').oninput=()=>{pending=null;$('override').hidden=true;notice('result');};
-for(const id of ['supplier','invoice_no','invoice_date','amount','reference','iban'])$(id).addEventListener('input',()=>{$('verified').checked=false});
-function readInvoice(){
+$('invoiceForm').oninput=()=>{pending=null;$('override').hidden=true;$('matchDetails').replaceChildren();notice('result');};
+for(const id of ['supplier','invoice_no','invoice_date','amount','reference','iban','document_type','related_ids','original_amount','fee_amount'])$(id).addEventListener('input',()=>{$('verified').checked=false});
+async function readInvoice(){
   const supplier=$('supplier').value.trim(),invoice_no=$('invoice_no').value.trim(),r=$('reference').value.trim(),i=$('iban').value.trim(),d=$('invoice_date').value;
   const ref=reference(r),account=iban(i),cents=amount($('amount').value);
   if(!norm(supplier))throw Error('Vul de leverancier in.');
   if(r&&!ref)throw Error('De gestructureerde mededeling heeft geen geldig controlegetal. Controleer of laat leeg.');
   if(i&&!account)throw Error('Ongeldig IBAN. Controleer of laat leeg.');
-  if(!norm(invoice_no)&&!ref)throw Error('Factuurnummer of geldige gestructureerde mededeling is verplicht.');
+  const related_ids=$('related_ids').value.trim(),document_type=$('document_type').value;
+  if(!norm(invoice_no)&&!ref&&!norm(related_ids))throw Error('Factuurnummer, dossierkenmerk of geldige mededeling is verplicht.');
   if(!cents)throw Error('Vul een geldig positief eurobedrag in, bv. 124,50.');
   if(d&&!date(d))throw Error('Ongeldige factuurdatum.');
   if(!$('verified').checked)throw Error('Bevestig eerst de gecontroleerde gegevens.');
-  return {supplier,invoice_no,reference:ref,iban:account,invoice_date:d||null,amount_cents:cents};
+  if(!file)throw Error('Voeg altijd de originele foto toe voordat je registreert.');
+  const readOptional=id=>{const t=$(id).value.trim();if(!t)return null;const n=amount(t);if(!n)throw Error('Ongeldig bedrag bij '+id);return n};
+  return {supplier,invoice_no,reference:ref,iban:account,invoice_date:d||null,amount_cents:cents,document_type,related_ids,original_cents:readOptional('original_amount'),fee_cents:readOptional('fee_amount'),photo_hash:await photoHash(file)};
 }
-function registerLocal(v,allow){
-  const rows=readLocal();
-  const sorted=[...rows].sort((a,b)=>['paid','paying','unpaid'].indexOf(a.status)-['paid','paying','unpaid'].indexOf(b.status));
-  const exact=sorted.find(x=>match(v,x)==='exact');if(exact)return {kind:'exact',invoice:exact};
-  const possible=sorted.find(x=>match(v,x)==='possible');if(possible&&!allow)return {kind:'possible',invoice:possible};
-  const invoice={...v,id:crypto.randomUUID(),status:'unpaid',created_at:new Date().toISOString(),paid_at:null};saveLocal([invoice,...rows]);return {kind:'new',invoice};
+function describe(x){return [x.supplier,money(x.amount_cents),x.invoice_no?'Nr. '+x.invoice_no:'',x.related_ids?'Dossier '+x.related_ids:'',x.invoice_date||'',x.reference||'',labels[x.status],x.review_required?'Controle vereist':'',x.paid_at?'Bevestigd: '+new Date(x.paid_at).toLocaleString('nl-BE'):''].filter(Boolean).join(' · ')}
+async function withLocalLock(fn){return navigator.locks?.request?navigator.locks.request('factuurcheck-write',fn):fn()}
+async function register(v,choice={}){
+  if(mode!=='local')throw Error('Fotoarchief is voorlopig alleen beschikbaar in de lokale testmodus.');
+  notice('result');pending=null;$('override').hidden=true;$('matchDetails').replaceChildren();
+  const r=await withLocalLock(async()=>{
+    const rows=readLocal();
+    const outcome=decideRegistration(rows,v,{...choice,documentId:crypto.randomUUID(),invoiceId:crypto.randomUUID(),now:new Date().toISOString()});
+    if(outcome.rows){await savePhoto(v.photo_hash,file);saveLocal(outcome.rows)}
+    return outcome;
+  });
+  if(r.kind==='possible'){
+    pending=v;
+    notice('result','MOGELIJKE DUBBELE FACTUUR — vergelijk de dossiers. Betaal niets voordat je zeker bent.','warn');
+    const list=$('matchDetails');
+    for(const m of r.matches){
+      const div=node('div',undefined,'ocr-field');div.append(node('strong',describe(m.invoice)),node('p',m.reasons.join(' · '),'muted'));
+      const b=node('button','Koppel aan dit dossier','secondary');b.type='button';
+      b.onclick=()=>run(async()=>{const current=await readInvoice();if(!pending||JSON.stringify(current)!==JSON.stringify(pending))throw Error('Gegevens gewijzigd. Controleer opnieuw.');if(confirm('Bevestig dat dit document over dezelfde schuld gaat. De app zet het dossier zo nodig op controle.'))await register(current,{linkId:m.invoice.id})},'result');
+      div.append(b);appendPhotos(div,m.invoice);list.append(div);
+    }
+    $('override').hidden=r.matches.some(m=>m.kind!=='possible');
+  }else{
+    const x=r.invoice;
+    if(r.kind==='review')notice('result','CONTROLE VEREIST — document bewaard in het dossier. Betaal niets opnieuw voordat je bank en leverancier het werkelijke openstaande saldo bevestigen.\n'+describe(x),'warn');
+    else if(r.kind==='exact')notice('result',(x.status==='paid'?'AL BETAALD — niet opnieuw betalen.':x.status==='paying'?'BETALING BEZIG — niet opnieuw betalen.':'AL GEREGISTREERD — geen tweede schuld.')+'\n'+describe(x)+'\nFoto bewaard in het dossier.',x.status==='paid'?'error':'warn');
+    else notice('result','NIEUWE FACTUUR — document en foto opgeslagen. Geen eerdere match in dit archief. Controleer je bank vóór betaling.\n'+describe(x),'good');
+    appendPhotos($('matchDetails'),x);$('verified').checked=false;
+  }
+  await refresh();
 }
-function describe(x){return [x.supplier,money(x.amount_cents),x.invoice_no?'Nr. '+x.invoice_no:'',x.invoice_date||'',x.reference||'',labels[x.status],x.paid_at?'Bevestigd: '+new Date(x.paid_at).toLocaleString('nl-BE'):''].filter(Boolean).join(' · ')}
-async function register(v,allow=false){
-  notice('result');pending=null;$('override').hidden=true;
-  const r=mode==='local'?registerLocal(v,allow):await rpc('register_invoice',{p:v,p_allow_possible:allow});
-  const x=r.invoice;
-  if(r.kind==='exact'){
-    const msg=x.status==='paid'?'AL BETAALD — niet opnieuw betalen.':x.status==='paying'?'BETALING BEZIG — niet opnieuw betalen.':'AL GEREGISTREERD — controleer de bestaande factuur; maak geen tweede registratie.';
-    notice('result',msg+'\n'+describe(x),x.status==='paid'?'error':'warn');
-  }else if(r.kind==='possible'){
-    pending=v;$('override').hidden=false;notice('result','MOGELIJKE DUBBELE FACTUUR — vergelijk het origineel met deze registratie:\n'+describe(x)+'\nRegistreer alleen apart als het aantoonbaar een andere factuur is.','warn');
-  }else if(r.kind==='new'){
-    notice('result','NIEUWE FACTUUR — opgeslagen als nog te betalen. Geen eerdere match in dit archief. Controleer je bank vóór betaling.\n'+describe(x),'good');
-    $('verified').checked=false;
-  }else throw Error('Onbekend resultaat. Controleer de geschiedenis.');
-  try{await refresh()}catch(e){notice('global','Resultaat ontvangen, maar geschiedenis niet vernieuwd: '+errorText(e),'error')}
-}
-$('invoiceForm').onsubmit=e=>{e.preventDefault();run(()=>register(readInvoice()),'result')};
-$('override').onclick=()=>run(async()=>{if(!pending)return;const v=readInvoice();if(JSON.stringify(v)!==JSON.stringify(pending))throw Error('Gegevens veranderd. Controleer opnieuw.');if(confirm('Heb je gecontroleerd dat dit echt een andere factuur is?'))await register(v,true)},'result');
+$('invoiceForm').onsubmit=e=>{e.preventDefault();run(async()=>register(await readInvoice()),'result')};
+$('override').onclick=()=>run(async()=>{if(!pending)return;const v=await readInvoice();if(JSON.stringify(v)!==JSON.stringify(pending))throw Error('Gegevens veranderd. Controleer opnieuw.');if(confirm('Heb je de dossiers vergeleken en is dit aantoonbaar een andere schuld?'))await register(v,{separate:true})},'result');
 function node(tag,txt,cls){const e=document.createElement(tag);if(txt!==undefined)e.textContent=txt;if(cls)e.className=cls;return e}
 function action(parent,title,cls,callback){const b=node('button',title,cls);b.onclick=callback;parent.append(b)}
+
+function appendPhotos(parent,x){
+ const docs=x.documents||[];
+ const gallery=node('div',undefined,'photo-gallery');
+ if(!docs.length){gallery.append(node('small','Geen foto beschikbaar voor deze oude registratie. Scan het document opnieuw om het te archiveren.','muted'));parent.append(gallery);return}
+ for(const d of docs){
+   const fig=node('figure',undefined,'photo-card'),img=node('img'),cap=node('figcaption',documentLabels[d.document_type]+' · '+money(d.amount_cents)+(d.invoice_date?' · '+d.invoice_date:''));
+   img.alt='Origineel document';img.loading='lazy';
+   const b=node('button','Open originele foto','secondary');b.type='button';b.disabled=true;
+   fig.append(img,cap,b);gallery.append(fig);
+   loadPhoto(d.photo_hash).then(blob=>{
+     if(!blob){fig.append(node('small','Foto ontbreekt in lokale opslag.','muted'));return}
+     if(!fig.isConnected)return;
+     const url=URL.createObjectURL(blob);archiveUrls.push(url);img.src=url;b.disabled=false;
+     b.onclick=()=>{const dialog=$('photoDialog');$('fullPhoto').src=url;dialog.showModal()};
+   }).catch(()=>fig.append(node('small','Foto kon niet worden geladen.','muted')));
+ }
+ parent.append(gallery);
+}
+$('closePhoto').onclick=()=>{$('photoDialog').close();$('fullPhoto').removeAttribute('src')};
+function reviewDossier(x){return run(async()=>{
+ if(mode!=='local')throw Error('Alleen lokale testmodus.');
+ if(x.status==='paying')throw Error('Controleer eerst de lopende betaling en bevestig of annuleer de reservering.');
+ const input=prompt('Controleer je bank EN de leverancier. Welk bedrag staat werkelijk nog open? Vul 0 in als niets meer verschuldigd is. Dit is niet automatisch het verschil tussen de facturen.','');
+ if(input===null)return;
+ const remaining=/^0(?:[,.]0{1,2})?$/.test(input.trim())?0:amount(input);
+ if(remaining===null)throw Error('Vul een geldig saldo in.');
+ if(!confirm('Bevestig dat je het werkelijke openstaande saldo van '+money(remaining)+' gecontroleerd hebt. Eerdere betaalgegevens blijven in het dossier.'))return;
+ await withLocalLock(async()=>{
+   const rows=readLocal(),current=rows.find(y=>y.id===x.id);
+   if(!current||JSON.stringify(current)!==JSON.stringify(x))throw Error('Dossier is gewijzigd. Vernieuw en controleer opnieuw.');
+   saveLocal(rows.map(y=>y.id===x.id?resolveReview(y,remaining,new Date().toISOString()):y));
+ });
+ notice('global','Controle geregistreerd. '+(remaining?'Alleen het bevestigde openstaande saldo is opnieuw beschikbaar voor betaling.':'Geen nieuwe betaling geregistreerd; dossier is afgesloten.'),'good');await refresh();
+})}
+
 function render(){
+  // Release URLs belonging to removed history cards; preserve result photos.
+  for(const url of archiveUrls.filter(u=>!Array.from(document.querySelectorAll('img')).some(img=>img.src===u))){URL.revokeObjectURL(url)}
+  archiveUrls=archiveUrls.filter(u=>Array.from(document.querySelectorAll('img')).some(img=>img.src===u));
   const q=norm($('search').value),filter=$('filter').value;
-  const list=items.filter(x=>(!filter||x.status===filter)&&(!q||norm([x.supplier,x.invoice_no,x.reference,x.iban].join(' ')).includes(q)));
+  const list=items.filter(x=>(!filter||x.status===filter)&&(!q||norm([x.supplier,x.invoice_no,x.reference,x.iban,x.related_ids,...(x.documents||[]).flatMap(d=>[d.invoice_no,d.related_ids,d.reference,d.supplier])].join(' ')).includes(q)));
   $('summary').textContent=items.length+' facturen · '+items.filter(x=>x.status==='paid').length+' betaald · '+items.filter(x=>x.status==='paying').length+' bezig · '+items.filter(x=>x.status==='unpaid').length+' open';
   const history=$('history');history.replaceChildren();
   if(!list.length)history.append(node('p','Geen facturen gevonden.','muted'));
   for(const x of list){
     const entry=node('article',undefined,'entry'),line=node('div',undefined,'line');
-    line.append(node('h3',x.supplier+' · '+money(x.amount_cents)),node('span',labels[x.status]||x.status,'pill '+x.status));entry.append(line);
+    line.append(node('h3',x.supplier+' · '+money(x.amount_cents)),node('span',x.review_required?'Controle vereist':labels[x.status]||x.status,'pill '+(x.review_required?'paying':x.status)));entry.append(line);
     entry.append(node('p',[x.invoice_no?'Nr. '+x.invoice_no:'',x.invoice_date||'',x.reference?'Mededeling '+x.reference:''].filter(Boolean).join(' · '),'muted'));
     if(x.paid_at)entry.append(node('small','Betaling bevestigd: '+new Date(x.paid_at).toLocaleString('nl-BE')));
     const buttons=node('div',undefined,'actions');
-    if(x.status==='unpaid'){action(buttons,'Ik ga betalen','',()=>changeStatus(x,'paying'));action(buttons,'Al eerder betaald','secondary',()=>changeStatus(x,'paid'));}
+    if(x.review_required){entry.append(node('p',x.review_reason||'Controleer bank en leverancier.','notice warn'));if(x.status!=='paying')action(buttons,'Openstaand saldo controleren','',()=>reviewDossier(x));}
+    if(x.status==='unpaid'&&!x.review_required){action(buttons,'Ik ga betalen','',()=>changeStatus(x,'paying'));action(buttons,'Al eerder betaald','secondary',()=>changeStatus(x,'paid'));}
     if(x.status==='paying'){
       action(buttons,'Betaling bevestigen','',()=>changeStatus(x,'paid'));
       action(buttons,'Reservering vrijgeven','secondary',()=>changeStatus(x,'unpaid'));
     }
-    if(x.status==='paid')action(buttons,'Betaalstatus corrigeren','secondary',()=>changeStatus(x,'unpaid'));
-    entry.append(buttons);history.append(entry);
+    if(x.status==='paid'&&!x.review_required)action(buttons,'Betaalstatus corrigeren','secondary',()=>changeStatus(x,'unpaid'));
+    entry.append(buttons);if(x.reviews?.length){const details=node('details');details.append(node('summary','Eerdere saldocontroles'));for(const audit of x.reviews)details.append(node('p',new Date(audit.at).toLocaleString('nl-BE')+' · vorig '+money(audit.previous_amount_cents)+' ('+labels[audit.previous_status]+') · bevestigd open '+money(audit.confirmed_open_cents),'muted'));entry.append(details)}appendPhotos(entry,x);history.append(entry);
   }
 }
 function changeStatus(x,next){return run(async()=>{
@@ -253,15 +308,16 @@ function changeStatus(x,next){return run(async()=>{
   notice('global');
   try{
     if(mode==='local'){
-      const rows=readLocal(),row=rows.find(y=>y.id===x.id);
+      await withLocalLock(async()=>{const rows=readLocal(),row=rows.find(y=>y.id===x.id);
       if(!row||row.status!==x.status)throw Error('Status gewijzigd. Vernieuw de lijst.');
-      row.status=next;row.paid_at=next==='paid'?new Date().toISOString():null;saveLocal(rows);
+      if(row.review_required&&row.status!=='paying')throw Error('Controleer eerst het dossier.');
+      row.status=next;row.paid_at=next==='paid'?new Date().toISOString():null;saveLocal(rows);});
     }else await rpc('set_invoice_status',{p_id:x.id,p_expected:x.status,p_next:next});
     notice('global',next==='paying'?'Reservering bevestigd. Alleen nu mag je de betaling uitvoeren.':next==='paid'?'Betaling geregistreerd.':'Status teruggezet.','good');
   }catch(e){notice('global','Geen nieuwe bevestiging: '+errorText(e)+' Betaal niet op basis van een onbevestigde reservering.','error')}
   await refresh();
 })}
 $('search').oninput=render;$('filter').onchange=render;$('refresh').onclick=()=>run(refresh);
-$('clearLocal').onclick=()=>run(async()=>{if(mode==='local'&&confirm('Alle lokale testfacturen definitief wissen?')){localStorage.removeItem(LOCAL);await refresh()}});
+$('clearLocal').onclick=()=>run(async()=>{if(mode==='local'&&confirm('Alle lokale testfacturen definitief wissen?')){localStorage.removeItem(LOCAL);await clearPhotos();await refresh()}});
 window.addEventListener('focus',()=>{if(mode&&!busy)run(refresh)});
 window.addEventListener('storage',e=>{if(mode==='local'&&e.key===LOCAL&&!busy)run(refresh)});
