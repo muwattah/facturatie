@@ -12,3 +12,5 @@ test('Same supplier and amount with different number is only possible',()=>asser
 test('Distant recurring invoices are distinct',()=>assert.equal(match(base,{...base,invoice_no:'INV-2',invoice_date:'2027-03-01'}),''));
 test('Same amount, different supplier is not sufficient',()=>assert.equal(match(base,{...base,supplier:'Other',invoice_no:'INV-2'}),''));
 test('Extract labeled OCR data',()=>{const x=extract('Factuurnummer: INV-1\nFactuurdatum: 01/11/2026\nTotaal te betalen € 1.234,56');assert.equal(x.amount_cents,123456);assert.equal(x.invoice_no,'INV-1');assert.equal(x.invoice_date,'2026-11-01')});
+test('Supplier suggestion from a labeled line',()=>assert.equal(extract('Leverancier: Testbedrijf\nFactuurnummer: TEST-001').supplier,'Testbedrijf'));
+test('Supplier suggestion from a company name',()=>assert.equal(extract('Voorbeeld NV\nFactuurnummer: TEST-001').supplier,'Voorbeeld NV'));
