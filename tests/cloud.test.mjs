@@ -1,0 +1,16 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {applyAction,validateDocument} from '../supabase/functions/_shared/cloud-actions.mjs';
+const A='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',B='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const ID='cccccccc-cccc-4ccc-8ccc-cccccccccccc',PAY='dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const now='2026-11-26T12:00:00Z';
+const row={id:ID,status:'unpaid',amount_cents:15000,open_cents:15000,review_required:false,payments:[],documents:[]};
+const reserve=()=>applyAction([row],{action:'reserve',invoiceId:ID},A,now,null,()=>PAY).invoice;
+test('A reservation belongs to its requesting member',()=>{const x=reserve();assert.equal(x.status,'paying');assert.equal(x.reservation.actor_id,A)});
+test('A second member cannot reserve the same invoice',()=>assert.throws(()=>applyAction([reserve()],{action:'reserve',invoiceId:ID},B,now)));
+test('Another user cannot confirm a reserved payment',()=>assert.throws(()=>applyAction([reserve()],{action:'payment',invoiceId:ID,reservationId:PAY,cents:5000,bankChecked:true,paymentDate:'2026-11-26'},B,now)));
+test('A confirmed partial payment preserves the residual balance and actor',()=>{const x=applyAction([reserve()],{action:'payment',invoiceId:ID,reservationId:PAY,cents:5000,bankChecked:true,paymentDate:'2026-11-26'},A,now,null,()=>PAY).invoice;assert.equal(x.open_cents,10000);assert.equal(x.status,'unpaid');assert.equal(x.reservation,null);assert.equal(x.payments[0].actor_id,A)});
+test('Release requires the same member and explicit bank verification',()=>assert.throws(()=>applyAction([reserve()],{action:'release',invoiceId:ID,reservationId:PAY},A,now)));
+test('Review blocks payment reservation',()=>assert.throws(()=>applyAction([{...row,review_required:true}],{action:'reserve',invoiceId:ID},A,now)));
+test('Client cannot pass a replacement balance or invoice status in the document',()=>{const d=validateDocument({supplier:'Stad Antwerpen',invoice_no:'2026-11',document_type:'invoice',amount_cents:15000,status:'paid',open_cents:0},'a'.repeat(64),'application/pdf');assert.equal(d.status,undefined);assert.equal(d.open_cents,undefined)});
+test('Invalid account number is rejected',()=>assert.throws(()=>validateDocument({supplier:'X',invoice_no:'Y',document_type:'invoice',amount_cents:15000,iban:'BE123'},'a'.repeat(64),'application/pdf')));
