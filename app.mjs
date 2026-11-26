@@ -17,6 +17,7 @@ function showTab(tab,scroll=true){
  $('verifySection').hidden=tab!=='scan'||!file;
  $('archiveSection').hidden=tab!=='archive';
  for(const [id,key] of [['tabHome','home'],['tabScan','scan'],['tabArchive','archive']])$(id).setAttribute('aria-pressed',String(tab===key));
+ if(tab==='archive')render();
  if(scroll)window.scrollTo({top:0,behavior:'auto'});
 }
 if(simpleUI){$('tabHome').onclick=()=>{if(!busy)showTab('home')};
@@ -29,9 +30,27 @@ function reviewExtras(){
 }
 $('document_type').addEventListener('change',()=>{if(simpleUI&&$('document_type').value!=='invoice')$('reminderExtra').open=true});
 
+
+const libraryLoads=new Map();
+function loadLibrary(name,url){
+ if(window[name])return Promise.resolve();
+ if(libraryLoads.has(name))return libraryLoads.get(name);
+ const p=new Promise((resolve,reject)=>{
+  const script=document.createElement('script');script.src=url;script.async=true;
+  const timer=setTimeout(()=>{script.remove();reject(Error('Bibliotheek laden duurde te lang. Probeer opnieuw.'));},20000);
+  script.onload=()=>{clearTimeout(timer);window[name]?resolve():reject(Error('Bibliotheek niet beschikbaar.'))};
+  script.onerror=()=>{clearTimeout(timer);script.remove();reject(Error('Bibliotheek niet geladen. Controleer internet.'))};
+  document.head.append(script);
+ }).catch(e=>{libraryLoads.delete(name);throw e});
+ libraryLoads.set(name,p);return p;
+}
+const loadOCR=()=>loadLibrary('Tesseract','https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js');
+const loadQR=()=>loadLibrary('jsQR','https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js');
+
 function clearArchiveUrls(){archiveUrls.forEach(URL.revokeObjectURL);archiveUrls=[]}
 const labels={unpaid:'Nog te betalen',paying:'Betaling bezig',paid:'Betaald'};
-const money=cents=>new Intl.NumberFormat('nl-BE',{style:'currency',currency:'EUR'}).format(cents/100);
+const moneyFormat=new Intl.NumberFormat('nl-BE',{style:'currency',currency:'EUR'});
+const money=cents=>moneyFormat.format(cents/100);
 function notice(id,message='',kind=''){const e=$(id);e.textContent=message;e.className='notice '+kind;e.hidden=!message}
 function errorText(e){return e?.message||String(e)}
 async function run(fn,where='global'){
@@ -52,7 +71,7 @@ async function refresh(){
   render();
 }
 function enter(next){
-  mode=next;items=[];pending=null;
+  mode=next;items=[];pending=null;archiveLimit=25;
   $('setup').hidden=true;$('workspace').hidden=false;
   $('modeTitle').textContent=mode==='local'?'Lokale testmodus':'Gezinsmodus';
   $('modeText').textContent=mode==='local'?'Niet gesynchroniseerd · alleen testgegevens':'Gedeelde database · ingelogd';
@@ -81,7 +100,7 @@ $('login').onsubmit=e=>{e.preventDefault();run(async()=>{
 $('logout').onclick=()=>run(async()=>{
   if(mode==='cloud'&&cloudAdapter)await cloudAdapter.logout();
   cloudAdapter=null;actorId=null;
-  client=null;mode='';items=[];resetForm();render();clearArchiveUrls();$('workspace').hidden=true;$('setup').hidden=false;
+  client=null;mode='';items=[];resetForm();$('history').replaceChildren();render();clearArchiveUrls();$('workspace').hidden=true;$('setup').hidden=false;
 });
 function choose(f){
   if(!f)return;
@@ -245,7 +264,7 @@ $('scan').onclick=()=>run(async()=>{
  try{
    async function getWorker(){
      if(worker)return worker;
-     if(!window.Tesseract)throw Error('OCR-bibliotheek niet geladen. Controleer internet.');
+     await loadOCR();
      worker=await window.Tesseract.createWorker(['nld','fra','eng'],1,{logger:m=>{
        if(m.status==='recognizing text')notice('scanMessage','OCR-ronde '+(step+1)+': tekst uitlezen…');
      }});return worker;
@@ -255,24 +274,33 @@ $('scan').onclick=()=>run(async()=>{
      const w=await getWorker();await w.setParameters({tessedit_pageseg_mode:String(psm),preserve_interword_spaces:'1'});
      const r=await w.recognize(image);addText(r.data.text,name);step++;
    }
-   async function qrScan(canvas){try{const q=await scanQR(canvas);if(q&&!qr.some(x=>JSON.stringify(x)===JSON.stringify(q)))qr.push(q)}catch{}}
+   async function qrScan(canvas){try{if(typeof window.BarcodeDetector!=='function')await loadQR();let q=await scanQR(canvas);if(!q&&typeof window.jsQR!=='function'){await loadQR();q=await scanQR(canvas)}if(q&&!qr.some(x=>JSON.stringify(x)===JSON.stringify(q)))qr.push(q)}catch{}}
    if(isPdf(file)){
      await readPDF(file,async({canvas,text,index,total})=>{
        notice('scanMessage','PDF-pagina '+index+' van '+total+' uitlezen…');
        if(index===1){$('preview').src=canvas.toDataURL('image/jpeg',.82);$('preview').hidden=false;}
-       await qrScan(canvas);addText(text,'PDF-pagina '+index);await tryVision(canvas,index,total);if(useVision&&index===4)warnings.push('AI bekijkt maximaal de eerste 3 PDF-pagina’s; OCR leest alle pagina’s.');
-       const extracted=extractDetailed(text).fields;
-       if(text.trim().length<80||!extracted.amount_cents||(!extracted.invoice_no&&!extracted.reference))await recognize(canvas,3,'PDF OCR '+index);
+       const aiTask=tryVision(canvas,index,total);
+       try{
+         await qrScan(canvas);addText(text,'PDF-pagina '+index);
+         if(useVision&&index===4)warnings.push('AI bekijkt maximaal de eerste 3 PDF-pagina’s; OCR leest alle pagina’s.');
+         const extracted=extractDetailed(text).fields;
+         if(text.trim().length<80||!extracted.amount_cents||(!extracted.invoice_no&&!extracted.reference))await recognize(canvas,3,'PDF OCR '+index);
+       }finally{await aiTask;}
        $('progress').value=index/total;
      });
    }else{
      images=await prepareImages(file);const q=quality(images[0]);
      if(q.dark)warnings.push('Foto lijkt donker.');if(q.soft)warnings.push('Foto lijkt mogelijk onscherp.');if(q.small)warnings.push('Foto heeft een lage resolutie.');
-     await qrScan(images[0]);await qrScan(images[1]);await tryVision(images[0],1,1);
-     await recognize(images[0],3,'Normale scan');$('progress').value=.33;
-     await recognize(images[1],3,'Contrastscan');$('progress').value=.66;
-     const m=mergeExtractions(passes);
-     if(Object.values(m.details).some(x=>!x.value||x.weak||x.ambiguous))await recognize(images[1],11,'Verspreide tekst');
+     const aiTask=tryVision(images[0],1,1);
+     const needsMore=()=>!passes.length||Object.values(mergeExtractions(passes).details).some(x=>!x.value||x.weak||x.ambiguous);
+     try{
+       const qrTask=(async()=>{await qrScan(images[0]);if(!qr.length)await qrScan(images[1])})();
+       try{
+         await recognize(images[0],3,'Normale scan');$('progress').value=.33;
+         if(needsMore()){await recognize(images[1],3,'Contrastscan');$('progress').value=.66}
+         if(needsMore())await recognize(images[1],11,'Verspreide tekst');
+       }finally{await qrTask}
+     }finally{await aiTask;}
    }
    if(!passes.length&&!qr.length&&!vision.length)throw Error('Geen leesbare gegevens gevonden. Kies een scherpere foto of vul handmatig in.');
    $('raw').value=texts.map(t=>'--- '+t.name+' ---\n'+t.text).join('\n\n');
@@ -354,20 +382,33 @@ function action(parent,title,cls,callback){const b=node('button',title,cls);b.on
 
 function appendPhotos(parent,x){
  const docs=x.documents||[];
+ if(!docs.length){parent.append(node('small','Geen origineel document beschikbaar.','muted'));return}
  const gallery=node('div',undefined,'photo-gallery');
- if(!docs.length){gallery.append(node('small','Geen foto beschikbaar voor deze oude registratie. Scan het document opnieuw om het te archiveren.','muted'));parent.append(gallery);return}
+ const sourceMode=mode,sourceAdapter=cloudAdapter;
  for(const d of docs){
-   const fig=node('figure',undefined,'photo-card'),img=node('img'),cap=node('figcaption',documentLabels[d.document_type]+' · '+money(d.amount_cents)+(d.invoice_date?' · '+d.invoice_date:''));
-   img.alt='Origineel document';img.loading='lazy';
-   const b=node('button','Open originele foto','secondary');b.type='button';b.disabled=true;
-   if(d.file_type==='application/pdf'){img.hidden=true;fig.append(node('strong','PDF-document'));}fig.append(img,cap,b);gallery.append(fig);
-   (mode==='cloud'?cloudAdapter.original(d.photo_hash):loadPhoto(d.photo_hash)).then(blob=>{
-     if(!blob){fig.append(node('small','Origineel document ontbreekt.','muted'));return}
-     if(!fig.isConnected)return;
-     const url=URL.createObjectURL(blob);archiveUrls.push(url);b.dataset.archiveUrl=url;if(d.file_type!=='application/pdf')img.src=url;b.disabled=false;
-     b.textContent=d.file_type==='application/pdf'?'Open originele PDF':'Open originele foto';
-     b.onclick=()=>{if(d.file_type==='application/pdf'){const link=document.createElement('a');link.href=url;link.target='_blank';link.rel='noopener';link.click();return}const dialog=$('photoDialog');$('fullPhoto').src=url;dialog.showModal()};
-   }).catch(()=>fig.append(node('small','Foto kon niet worden geladen.','muted')));
+   const fig=node('figure',undefined,'photo-card');
+   const cap=node('figcaption',documentLabels[d.document_type]+' · '+money(d.amount_cents)+(d.invoice_date?' · '+d.invoice_date:''));
+   const pdf=d.file_type==='application/pdf';
+   const b=node('button',pdf?'PDF laden':'Foto openen','secondary');b.type='button';
+   fig.append(cap,b);gallery.append(fig);
+   b.onclick=async()=>{
+     if(b.disabled||busy)return;
+     b.disabled=true;b.textContent='Laden…';
+     try{
+       const blob=await (sourceMode==='cloud'?sourceAdapter.original(d.photo_hash):loadPhoto(d.photo_hash));
+       if(!blob)throw Error('Origineel ontbreekt.');
+       if(!fig.isConnected||mode!==sourceMode||cloudAdapter!==sourceAdapter)return;
+       const url=URL.createObjectURL(blob);archiveUrls.push(url);b.dataset.archiveUrl=url;
+       if(pdf){
+         const link=node('a','Open originele PDF');link.href=url;link.target='_blank';link.rel='noopener';link.dataset.archiveUrl=url;fig.append(link);b.hidden=true;
+       }else{
+         b.textContent='Foto bekijken';
+         const open=()=>{const dialog=$('photoDialog');$('fullPhoto').src=url;if(!dialog.open)dialog.showModal()};
+         b.onclick=open;open();
+       }
+     }catch(e){b.textContent='Opnieuw proberen';fig.append(node('small',errorText(e),'muted'))}
+     finally{b.disabled=false}
+   };
  }
  parent.append(gallery);
 }
@@ -429,8 +470,10 @@ function appendPayments(entry,x){
  entry.append(details);
 }
 
+let archiveLimit=25;
 function render(){
   renderDashboard();
+  if(simpleUI&&currentTab!=='archive')return;
   // Release URLs belonging to removed history cards; preserve result photos.
   for(const url of archiveUrls.filter(u=>!Array.from(document.querySelectorAll('img,[data-archive-url]')).some(img=>img.src===u||img.dataset.archiveUrl===u))){URL.revokeObjectURL(url)}
   archiveUrls=archiveUrls.filter(u=>Array.from(document.querySelectorAll('img,[data-archive-url]')).some(img=>img.src===u||img.dataset.archiveUrl===u));
@@ -441,7 +484,7 @@ function render(){
   for(const url of archiveUrls.filter(u=>!Array.from(document.querySelectorAll('img,[data-archive-url]')).some(img=>img.src===u||img.dataset.archiveUrl===u)))URL.revokeObjectURL(url);
   archiveUrls=archiveUrls.filter(u=>Array.from(document.querySelectorAll('img,[data-archive-url]')).some(img=>img.src===u||img.dataset.archiveUrl===u));
   if(!list.length)history.append(node('p','Geen facturen gevonden.','muted'));
-  for(const x of list){
+  for(const x of list.slice(0,archiveLimit)){
     const outer=node('article',undefined,'entry entry-layout'),entry=node('div'),line=node('div',undefined,'line');
     line.append(node('h3',x.supplier+' · '+money(openBalance(x))+' open'),node('span',x.review_required?'Controle vereist':(x.status==='paid'&&x.closed_reason==='reconciled'?'Afgesloten':x.status==='unpaid'&&openBalance(x)>0&&(x.payments||[]).some(p=>p.kind==='payment')?'Gedeeltelijk betaald':labels[x.status]||x.status),'pill '+(x.review_required?'paying':x.status)));entry.append(line);
     entry.append(node('p',[x.invoice_no?'Nr. '+x.invoice_no:'',x.invoice_date||'',x.reference?'Mededeling '+x.reference:''].filter(Boolean).join(' · '),'muted'));
@@ -458,6 +501,7 @@ function render(){
     if(mode==='local'&&x.status==='paid'&&!x.review_required&&!(x.payments||[]).length)action(buttons,'Oude betaalstatus controleren','secondary',()=>flagReview(x));
     entry.append(buttons);appendPayments(entry,x);if(x.reviews?.length){const details=node('details');details.append(node('summary','Eerdere saldocontroles'));for(const audit of x.reviews)details.append(node('p',new Date(audit.at).toLocaleString('nl-BE')+' · vorig '+money(audit.previous_amount_cents)+' ('+labels[audit.previous_status]+') · bevestigd open '+money(audit.confirmed_open_cents),'muted'));entry.append(details)}outer.append(entry);const photos=node('aside');appendPhotos(photos,x);outer.append(photos);history.append(outer);
   }
+  if(list.length>archiveLimit){const more=node('button','Meer facturen tonen ('+(list.length-archiveLimit)+')','secondary');more.onclick=()=>{archiveLimit+=25;render()};history.append(more)}
 }
 function changeStatus(x,next){return run(async()=>{
   const prompt=next==='paying'?'Reserveer deze factuur alleen als jij de betaling gaat uitvoeren. Controleer eerst je bank.':next==='paid'?(x.status==='unpaid'?'Is deze factuur volgens je bank al eerder betaald? Registreer dit alleen, betaal niet opnieuw.':'Bevestig je dat deze factuur effectief via je bank betaald is?'):'Zet alleen terug op nog te betalen als er geen betaling werd uitgevoerd of onderweg is. Doorgaan?';
@@ -477,7 +521,8 @@ function changeStatus(x,next){return run(async()=>{
   }catch(e){notice('global','Geen nieuwe bevestiging: '+errorText(e)+' Betaal niet op basis van een onbevestigde reservering.','error')}
   await refresh();
 })}
-$('categoryFilter').onchange=render;$('search').oninput=render;$('filter').onchange=render;$('refresh').onclick=()=>run(refresh);
+function filterArchive(){archiveLimit=25;render()}
+$('categoryFilter').onchange=filterArchive;$('search').oninput=filterArchive;$('filter').onchange=filterArchive;$('refresh').onclick=()=>run(refresh);
 $('clearLocal').onclick=()=>run(async()=>{if(mode==='local'&&confirm('Alle lokale testfacturen definitief wissen?')){await withLocalLock(async()=>{localStorage.removeItem(LOCAL);await clearPhotos()});await refresh()}});
 // A returning iOS file picker fires focus before change. Never lock the scan form on focus or polling.
 window.addEventListener('focus',()=>{if(mode&&!busy&&simpleUI&&currentTab!=='scan')run(refresh)});
