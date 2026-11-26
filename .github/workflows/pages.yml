@@ -25,8 +25,8 @@ jobs:
           mkdir -p site
           cp index.html app.mjs core.mjs archive.mjs scanner.mjs ledger.mjs cloud.mjs manifest.webmanifest icon.svg site/
           touch site/.nojekyll
-          grep -Fq 'FactuurCheck · v0.7.1' site/index.html || { echo 'Footer version mismatch'; exit 1; }
-          grep -Fq 'app.mjs?v=0.7.1' site/index.html || { echo 'Script version mismatch'; exit 1; }
+          grep -Fq 'FactuurCheck · v0.7.2' site/index.html || { echo 'Footer version mismatch'; exit 1; }
+          grep -Fq 'app.mjs?v=0.7.2' site/index.html || { echo 'Script version mismatch'; exit 1; }
           node --check site/app.mjs
       - uses: actions/upload-pages-artifact@v3
         with:
