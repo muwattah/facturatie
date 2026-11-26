@@ -22,12 +22,12 @@
 <h2>Kies hoe je wilt werken</h2>
 <p class="muted">De lokale testmodus bewaart gegevens uitsluitend in deze browser. De gezinsmodus gebruikt een gedeelde, afgeschermde database.</p>
 <div class="actions"><button id="local">Lokale test starten</button></div>
-<details id="cloud"><summary>Gezinsmodus (gratis testproject)</summary>
+<details id="cloud" open><summary>Inloggen bij Goedendagstraat</summary>
 <p class="notice warn">Dit is een ontwikkelversie. Gebruik alleen een apart Supabase-testproject en fictieve facturen. De lokale facturen worden niet automatisch geïmporteerd.</p><form id="login">
-<label>Supabase project-URL<input id="url" type="url" required readonly value="https://ggsgwcfndqhbnnmbuwck.supabase.co" placeholder="https://…supabase.co" autocomplete="off"></label>
+<div hidden><label>Supabase project-URL<input id="url" type="url" required readonly value="https://ggsgwcfndqhbnnmbuwck.supabase.co" placeholder="https://…supabase.co" autocomplete="off"></label>
 <label>Publieke publishable / anon key<input id="key" required readonly value="sb_publishable_ZTrVcFAG9mEGSYeby41TDA_R-SAvzOO" autocomplete="off" placeholder="sb_publishable_… of anon JWT"></label>
-<small>Gebruik nooit een secret- of service_role-key. Configuratie wordt op dit toestel onthouden.</small>
-<label>E-mailadres<input id="email" type="email" autocomplete="username" required></label>
+<small>Gebruik nooit een secret- of service_role-key. Configuratie wordt op dit toestel onthouden.</small></div>
+<label>E-mailadres van het gezinsaccount<input id="email" type="email" autocomplete="username" required></label>
 <label>Wachtwoord<input id="password" type="password" autocomplete="current-password" required></label>
 <button type="submit">Inloggen</button>
 </form>
@@ -84,7 +84,7 @@
 <div class="actions" id="localTools" hidden><button id="clearLocal" class="danger">Lokale testgegevens wissen</button></div>
 </section>
 </div>
-<small>FactuurCheck · v0.5.0 · Geen automatische bankcontrole. Gebruik testgegevens tot je de werking hebt gecontroleerd.</small>
+<small>FactuurCheck · v0.5.1 · Geen automatische bankcontrole. Gebruik testgegevens tot je de werking hebt gecontroleerd.</small>
 </main><dialog id="photoDialog"><button id="closePhoto">Foto sluiten</button><img id="fullPhoto" alt="Originele factuur op volledige grootte"></dialog>
-<script type="module" src="./app.mjs?v=0.4.0"></script>
+<script type="module" src="./app.mjs?v=0.5.1"></script>
 </body></html>
