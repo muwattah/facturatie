@@ -2,7 +2,7 @@ import {norm,reference,amount,iban,date,extractDetailed,mergeExtractions,documen
 import {documentLabels,decideRegistration,photoHash,savePhoto,loadPhoto,clearPhotos} from './archive.mjs?v=0.4.0';
 import {parseEpc,scanQR,dueDate,categoryFor,isPdf,readPDF,quality,localAI} from './scanner.mjs?v=0.4.0';
 import {openBalance,recordPayment,reversePayment,reconcile,dashboard} from './ledger.mjs?v=0.4.0';
-import {createCloudAdapter} from './cloud.mjs?v=0.5.0';
+import {createCloudAdapter} from './cloud.mjs?v=0.5.1';
 const $=id=>document.getElementById(id);
 const LOCAL='factuurcheck.local.v1', CONFIG='factuurcheck.config.v1';
 let mode='', client=null, cloudAdapter=null, actorId=null, items=[], file=null, previewUrl='', pending=null, busy=false, archiveUrls=[],rotation=0;
@@ -24,7 +24,7 @@ function saveLocal(rows){localStorage.setItem(LOCAL,JSON.stringify(rows))}
 async function refresh(){
   if(mode==='local'){items=readLocal()}
   else if(mode==='cloud'){
-    try{items=await cloudAdapter.load()}catch(e){items=[];render();throw e}
+    try{const updated=await cloudAdapter.load();if(JSON.stringify(updated)===JSON.stringify(items))return;items=updated}catch(e){items=[];render();throw e}
   }
   render();
 }
@@ -53,7 +53,7 @@ $('login').onsubmit=e=>{e.preventDefault();run(async()=>{
   const {error}=await client.auth.signInWithPassword({email:config.email,password:$('password').value});
   $('password').value='';if(error)throw error;
   cloudAdapter=createCloudAdapter(client);
-  try{const auth=await client.auth.getUser();if(auth.error||!auth.data.user)throw Error('Ongeldige sessie.');actorId=auth.data.user.id;const initial=await cloudAdapter.load();localStorage.setItem(CONFIG,JSON.stringify({email:config.email}));enter('cloud');items=initial;render()}catch(e){await client.auth.signOut();cloudAdapter=null;actorId=null;client=null;throw e}
+  try{const auth=await client.auth.getUser();if(auth.error||!auth.data.user)throw Error('Ongeldige sessie.');actorId=auth.data.user.id;const initial=await cloudAdapter.load();localStorage.setItem(CONFIG,JSON.stringify({email:config.email}));enter('cloud');items=initial;render()}catch(e){await client.auth.signOut({scope:'local'});cloudAdapter=null;actorId=null;client=null;throw e}
 },'setupMessage')};
 $('logout').onclick=()=>run(async()=>{
   if(mode==='cloud'&&cloudAdapter)await cloudAdapter.logout();
