@@ -46,10 +46,11 @@
 <label>Camera<input id="camera" type="file" accept="image/*" capture="environment"></label>
 <label>Afbeelding of PDF kiezen<input id="file" type="file" accept="image/*,application/pdf,.pdf"></label>
 
+<div id="visionOptions" hidden><label><input id="visionConsent" type="checkbox" style="display:inline;width:auto;margin-right:6px"> Extra AI-beeldherkenning gebruiken (Cloudflare)</label><small>Met deze keuze worden foto’s of maximaal de eerste 3 PDF-pagina’s naar Cloudflare gestuurd. Alleen gebruiken met toestemming voor de gegevens op de factuur. Maximaal 12 pagina-aanvragen per dag voor het gezin. OCR blijft lokaal en werkt ook zonder AI.</small></div>
 <div class="actions"><button id="scan" disabled>Factuur uitlezen (meerdere scans)</button><button id="rotate" class="secondary">Foto 90° draaien</button><button id="reset" class="secondary">Nieuwe scan / wissen</button></div>
 <progress id="progress" max="1" value="0" hidden></progress>
 <div id="scanMessage" role="status" aria-live="polite" class="notice" hidden></div>
-<details><summary>Herkende tekst per scanronde bekijken of plakken</summary><label>Tekst<textarea id="raw" rows="5"></textarea></label><button id="parse" class="secondary">Gegevens uit tekst halen</button></details><div class="actions"><button id="ai" class="secondary">Extra lokale AI-herkenning</button></div><small>Optioneel: alleen op browsers met ingebouwde lokale AI. Geen cloud-AI of API-sleutel.</small>
+<details><summary>Herkende tekst per scanronde bekijken of plakken</summary><label>Tekst<textarea id="raw" rows="5"></textarea></label><button id="parse" class="secondary">Gegevens uit tekst halen</button></details><div class="actions"><button id="ai" class="secondary">Extra lokale AI-herkenning</button></div><small>Optioneel: alleen op browsers met ingebouwde lokale AI. Deze knop gebruikt uitsluitend lokale AI. Cloudflare AI is hierboven afzonderlijk opt-in.</small>
 </section>
 <section>
 <h2>2. Gegevens controleren</h2>
@@ -84,8 +85,8 @@
 <div class="actions" id="localTools" hidden><button id="clearLocal" class="danger">Lokale testgegevens wissen</button></div>
 </section>
 </div>
-<small>FactuurCheck · v0.5.1 · Geen automatische bankcontrole. Gebruik testgegevens tot je de werking hebt gecontroleerd.</small>
+<small>FactuurCheck · v0.6.0 · Geen automatische bankcontrole. Gebruik testgegevens tot je de werking hebt gecontroleerd.</small>
 </main><dialog id="photoDialog"><button id="closePhoto">Foto sluiten</button><img id="fullPhoto" alt="Originele factuur op volledige grootte"></dialog>
-<script type="module" src="./app.mjs?v=0.5.1"></script>
+<script type="module" src="./app.mjs?v=0.6.0"></script>
 </body></html>
 <!-- Herpublicatie FactuurCheck -->
