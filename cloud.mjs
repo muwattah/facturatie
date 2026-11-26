@@ -39,7 +39,7 @@ export function createCloudAdapter(client){
  }
  async function logout(){
    household=null;revision=null;
-   const r=await client.auth.signOut();if(r.error)throw r.error;
+   const r=await client.auth.signOut({scope:'local'});if(r.error)throw r.error;
  }
  return {load,action,original,logout};
 }
