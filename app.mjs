@@ -7,8 +7,10 @@ const $=id=>document.getElementById(id);
 const LOCAL='factuurcheck.local.v1', CONFIG='factuurcheck.config.v1';
 let mode='', client=null, cloudAdapter=null, actorId=null, items=[], file=null, previewUrl='', pending=null, busy=false, archiveUrls=[],rotation=0;
 
-let currentTab='home';
+const simpleUI=!!$('tabHome');
+let currentTab=simpleUI?'home':'scan',queuedSelection=null;
 function showTab(tab,scroll=true){
+ if(!simpleUI)return;
  currentTab=tab;
  $('dashboard').hidden=tab!=='home';
  $('scanSection').hidden=tab!=='scan';
@@ -17,14 +19,15 @@ function showTab(tab,scroll=true){
  for(const [id,key] of [['tabHome','home'],['tabScan','scan'],['tabArchive','archive']])$(id).setAttribute('aria-pressed',String(tab===key));
  if(scroll)window.scrollTo({top:0,behavior:'auto'});
 }
-$('tabHome').onclick=()=>{if(!busy)showTab('home')};
+if(simpleUI){$('tabHome').onclick=()=>{if(!busy)showTab('home')};
 $('tabScan').onclick=$('startScan').onclick=()=>{if(!busy)showTab('scan')};
-$('tabArchive').onclick=()=>{if(!busy)showTab('archive')};
+$('tabArchive').onclick=()=>{if(!busy)showTab('archive')};}
 function reviewExtras(){
+ if(!simpleUI)return;
  $('invoiceExtra').open=!!$('invoice_date').value||$('invoice_date').classList.contains('needs-review');
  $('reminderExtra').open=$('document_type').value!=='invoice'||!!$('original_amount').value||!!$('fee_amount').value;
 }
-$('document_type').addEventListener('change',()=>{if($('document_type').value!=='invoice')$('reminderExtra').open=true});
+$('document_type').addEventListener('change',()=>{if(simpleUI&&$('document_type').value!=='invoice')$('reminderExtra').open=true});
 
 function clearArchiveUrls(){archiveUrls.forEach(URL.revokeObjectURL);archiveUrls=[]}
 const labels={unpaid:'Nog te betalen',paying:'Betaling bezig',paid:'Betaald'};
@@ -36,7 +39,7 @@ async function run(fn,where='global'){
   const buttons=[...document.querySelectorAll('button,input,textarea,select')].filter(b=>!b.disabled);
   buttons.forEach(b=>b.disabled=true);
   try{await fn()}catch(e){notice(where,errorText(e),'error')}
-  finally{busy=false;buttons.forEach(b=>b.disabled=false);$('scan').disabled=!file}
+  finally{busy=false;buttons.forEach(b=>b.disabled=false);if(queuedSelection){const selected=queuedSelection;queuedSelection=null;choose(selected)}$('scan').disabled=!file}
 }
 function readLocal(){const parsed=JSON.parse(localStorage.getItem(LOCAL)||'[]');if(!Array.isArray(parsed))throw Error('Lokale opslag is beschadigd. Wis niet zomaar je gegevens.');return parsed}
 function saveLocal(rows){localStorage.setItem(LOCAL,JSON.stringify(rows))}
@@ -81,17 +84,23 @@ $('logout').onclick=()=>run(async()=>{
   client=null;mode='';items=[];resetForm();render();clearArchiveUrls();$('workspace').hidden=true;$('setup').hidden=false;
 });
 function choose(f){
-  if(busy)return;
+  if(!f)return;
+  if(busy){queuedSelection=f;return;}
+  // iOS can supply an empty MIME type even for a normal photo or PDF.
+  const ext=f.name?.split('.').pop()?.toLowerCase();
+  const known={jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png',webp:'image/webp',gif:'image/gif',pdf:'application/pdf'};
+  if((!f.type||f.type==='application/octet-stream')&&known[ext])f=new File([f],f.name,{type:known[ext],lastModified:f.lastModified});
   $('raw').value='';$('invoiceForm').reset();$('ocrDetails').replaceChildren();$('matchDetails').replaceChildren();for(const k of Object.keys(fieldLabels))$(fieldId(k)).classList.remove('needs-review');notice('result');notice('scanMessage');
   if(previewUrl)URL.revokeObjectURL(previewUrl);previewUrl='';file=null;
   $('preview').hidden=true;$('preview').removeAttribute('src');
   rotation=0;$('preview').style.transform='';$('openOriginal').hidden=true;$('qrDetails').replaceChildren();
   if(f){if((!f.type.startsWith('image/')&&!isPdf(f))||f.size>20*1024*1024){notice('scanMessage','Kies een afbeelding of PDF van maximaal 20 MB.','error')}
     else{file=f;previewUrl=URL.createObjectURL(file);$('openOriginal').href=previewUrl;$('openOriginal').hidden=false;if(!isPdf(f)){$('preview').src=previewUrl;$('preview').hidden=false;}notice('scanMessage','Document klaar om uit te lezen.');}}
-  $('scan').disabled=!file;$('chosenFile').textContent=file?file.name:'Nog geen bestand gekozen.';$('verifySection').hidden=currentTab!=='scan'||!file;$('suggestions').open=false;$('invoiceExtra').open=false;$('reminderExtra').open=false;pending=null;$('override').hidden=true;$('matchDetails').replaceChildren();
+  $('scan').disabled=!file;if(simpleUI){$('chosenFile').textContent=file?file.name:'Nog geen bestand gekozen.';$('verifySection').hidden=currentTab!=='scan'||!file;$('suggestions').open=false;$('invoiceExtra').open=false;$('reminderExtra').open=false;}pending=null;$('override').hidden=true;$('matchDetails').replaceChildren();
 }
-$('camera').onchange=()=>{$('file').value='';choose($('camera').files[0])};
-$('file').onchange=()=>{$('camera').value='';choose($('file').files[0])};
+function selectionChanged(id,other){const picked=$(id).files?.[0];if(!picked)return;$(other).value='';try{choose(picked)}catch(e){notice('scanMessage',errorText(e),'error');$('scan').disabled=!file}}
+$('camera').onchange=()=>selectionChanged('camera','file');
+$('file').onchange=()=>selectionChanged('file','camera');
 const fieldLabels={supplier:'Leverancier',invoice_no:'Factuurnummer',invoice_date:'Factuurdatum',amount_cents:'Bedrag',reference:'Gestructureerde mededeling',iban:'IBAN'};
 const fieldId=k=>k==='amount_cents'?'amount':k;
 const fieldValue=(k,v)=>k==='amount_cents'?(v===null||v===''?'':(v/100).toFixed(2).replace('.',',')):v||'';
@@ -126,7 +135,7 @@ function applyText(result=extractDetailed($('raw').value)){
   const msg=count+' van 6 velden voorgesteld. Controleer alle gegevens met de originele factuur.'
     +(missing.length?'\nNiet ingevuld: '+missing.join(', ')+'.':'')
     +(uncertain.length?'\nExtra controleren: '+uncertain.join(', ')+'.':'');
-  notice('scanMessage',msg,missing.length||uncertain.length?'warn':'good');reviewExtras();if(uncertain.length)$('suggestions').open=true;
+  notice('scanMessage',msg,missing.length||uncertain.length?'warn':'good');reviewExtras();if(simpleUI&&uncertain.length)$('suggestions').open=true;
 }
 $('parse').onclick=()=>{if(!busy){const raw=$('raw').value;const chunks=raw.split(/^--- (?:Normale scan|Contrastscan|Verspreide tekst|PDF-pagina \d+|PDF OCR \d+) ---\s*$/m).filter(t=>t.trim());applyText(chunks.length>1?mergeExtractions(chunks.map(extractDetailed)):extractDetailed(chunks[0]||raw));}};
 async function decodeImage(blob){
@@ -208,7 +217,7 @@ function compareVision(pages){
  $('verified').checked=false;pending=null;$('override').hidden=true;$('matchDetails').replaceChildren();notice('result');
  panel.append(node('small',agree+' gelijk, '+added+' aangevuld, '+conflicts+' te vergelijken. AI kan zich vergissen.','muted'));
  $('qrDetails').append(panel);
- if(conflicts)$('suggestions').open=true;reviewExtras();return {added,conflicts,agree};
+ if(simpleUI&&conflicts)$('suggestions').open=true;reviewExtras();return {added,conflicts,agree};
 }
 
 function addScanSuggestion(label,values){
@@ -271,10 +280,10 @@ $('scan').onclick=()=>run(async()=>{
    for(const q of qr)addScanSuggestion('EPC-betaal-QR — controleer rekening en bedrag',q);
    if(vision.length){const v=compareVision(vision);warnings.push('Vision AI: '+v.added+' aangevuld, '+v.conflicts+' te vergelijken, '+v.agree+' gelijk. Controleer alles met het origineel.');}
    if(visionError)warnings.push(visionError);
-   if(qr.length)$('suggestions').open=true;
+   if(simpleUI&&qr.length)$('suggestions').open=true;
    if(warnings.length||qr.length)notice('scanMessage',$('scanMessage').textContent+'\n'+warnings.join(' ')+(qr.length?'\nBetaal-QR gevonden. Klik op de juiste voorstellen.':''),'warn');
    $('progress').value=1;
-   $('verifySection').hidden=false;reviewExtras();$('verifySection').scrollIntoView({behavior:'smooth',block:'start'});
+   if(simpleUI){$('verifySection').hidden=false;reviewExtras();$('verifySection').scrollIntoView({behavior:'smooth',block:'start'});}
  }finally{
    if(worker)await worker.terminate();
    if(images)for(const image of images){image.width=1;image.height=1}
@@ -282,7 +291,7 @@ $('scan').onclick=()=>run(async()=>{
  }
 },'scanMessage');
 function resetForm(){
-  $('verifySection').hidden=true;$('chosenFile').textContent='Nog geen bestand gekozen.';$('suggestions').open=false;$('invoiceExtra').open=false;$('reminderExtra').open=false;
+  queuedSelection=null;if(simpleUI){$('verifySection').hidden=true;$('chosenFile').textContent='Nog geen bestand gekozen.';$('suggestions').open=false;$('invoiceExtra').open=false;$('reminderExtra').open=false;}
   // Also called while an operation is busy, so clear the image directly.
   if(previewUrl)URL.revokeObjectURL(previewUrl);previewUrl='';file=null;
   $('preview').hidden=true;$('preview').removeAttribute('src');$('preview').style.transform='';rotation=0;$('openOriginal').hidden=true;$('qrDetails').replaceChildren();$('camera').value='';$('file').value='';$('scan').disabled=true;
@@ -470,6 +479,7 @@ function changeStatus(x,next){return run(async()=>{
 })}
 $('categoryFilter').onchange=render;$('search').oninput=render;$('filter').onchange=render;$('refresh').onclick=()=>run(refresh);
 $('clearLocal').onclick=()=>run(async()=>{if(mode==='local'&&confirm('Alle lokale testfacturen definitief wissen?')){await withLocalLock(async()=>{localStorage.removeItem(LOCAL);await clearPhotos()});await refresh()}});
-window.addEventListener('focus',()=>{if(mode&&!busy)run(refresh)});
-setInterval(()=>{if(mode==='cloud'&&!busy)run(refresh)},30000);
+// A returning iOS file picker fires focus before change. Never lock the scan form on focus or polling.
+window.addEventListener('focus',()=>{if(mode&&!busy&&simpleUI&&currentTab!=='scan')run(refresh)});
+setInterval(()=>{if(mode==='cloud'&&!busy&&simpleUI&&currentTab!=='scan')run(refresh)},30000);
 window.addEventListener('storage',e=>{if(mode==='local'&&e.key===LOCAL&&!busy)run(refresh)});
