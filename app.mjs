@@ -33,7 +33,7 @@ function enter(next){
   $('setup').hidden=true;$('workspace').hidden=false;
   $('modeTitle').textContent=mode==='local'?'Lokale testmodus':'Gezinsmodus';
   $('modeText').textContent=mode==='local'?'Niet gesynchroniseerd · alleen testgegevens':'Gedeelde database · ingelogd';
-  $('localTools').hidden=mode!=='local';
+  $('localTools').hidden=mode!=='local';$('visionOptions').hidden=mode!=='cloud';$('visionConsent').checked=false;
   notice('global');resetForm();render();
 }
 $('local').onclick=()=>run(async()=>{readLocal();enter('local');await refresh()},'setupMessage');
@@ -144,6 +144,53 @@ async function prepareImages(blob){
   }finally{if(typeof image.close==='function')image.close()}
 }
 $('rotate').onclick=()=>{if(!file||isPdf(file))return;rotation=(rotation+90)%360;$('preview').style.transform='rotate('+rotation+'deg)';$('verified').checked=false;notice('scanMessage','Foto gedraaid. Scan opnieuw.','warn')};
+
+// AI sends a bounded JPEG only after explicit consent. No automatic payments.
+async function visionPage(canvas){
+ const c=document.createElement('canvas'),scale=Math.min(1,1800/Math.max(canvas.width,canvas.height));
+ c.width=Math.max(1,Math.round(canvas.width*scale));c.height=Math.max(1,Math.round(canvas.height*scale));
+ c.getContext('2d').drawImage(canvas,0,0,c.width,c.height);
+ let image=c.toDataURL('image/jpeg',.85);if(image.length>2800000)image=c.toDataURL('image/jpeg',.60);
+ c.width=c.height=1;if(image.length>2800000)throw Error('Foto te groot voor AI.');
+ const {data,error}=await client.functions.invoke('factuurcheck-vision',{body:{image,consent:true}});
+ if(error){let msg='AI niet beschikbaar; OCR blijft bruikbaar.';try{const body=await error.context?.json();if(typeof body?.error==='string')msg=body.error}catch{}throw Error(msg)}
+ if(!data?.fields)throw Error('Geen AI-resultaat.');
+ return data.fields;
+}
+const visionLabels={supplier:'Leverancier',invoice_no:'Factuurnummer',invoice_date:'Factuurdatum',due_date:'Vervaldatum',amount:'Te betalen bedrag',reference:'Gestructureerde mededeling',iban:'IBAN',document_type:'Soort document',related_ids:'Oorspronkelijke nummers / dossier',original_amount:'Oorspronkelijk bedrag',fee_amount:'Herinneringskosten'};
+function cleanVision(k,v){
+ if(typeof v!=='string'||!v.trim())return '';
+ if(['amount','original_amount','fee_amount'].includes(k)){const n=amount(v);return n?fieldValue('amount_cents',n):''}
+ if(['invoice_date','due_date'].includes(k))return date(v);
+ if(k==='reference')return reference(v);
+ if(k==='iban')return iban(v);
+ if(k==='document_type')return ['invoice','reminder','collection','credit'].includes(v)?v:'';
+ return v.trim().slice(0,k==='related_ids'?300:k==='supplier'?180:100);
+}
+function compareVision(pages){
+ const panel=node('div',undefined,'ocr-field');panel.append(node('strong','Vision AI — vergelijking met OCR'));
+ let added=0,conflicts=0,agree=0;
+ for(const [k,label] of Object.entries(visionLabels)){
+   const el=$(k),values=[...new Set(pages.map(p=>cleanVision(k,p[k])).filter(Boolean))];
+   if(!values.length)continue;
+   const current=cleanVision(k,el.value);
+   if(values.length===1&&current&&norm(current)===norm(values[0])){agree++;continue}
+   // Document type defaults to invoice; never silently replace it or any existing value.
+   if(values.length===1&&!current&&k!=='document_type'){
+     el.value=values[0];el.classList.add('needs-review');added++;
+     panel.append(node('p',label+': '+values[0]+' — door AI aangevuld; controleer origineel.'));
+   }else{
+     conflicts++;el.classList.add('needs-review');
+     panel.append(node('p',label+' — OCR / formulier: '+(el.value||'leeg')+'; kies alleen wat op de factuur staat.'));
+     for(const v of values){const btn=node('button',v,'secondary');btn.type='button';btn.onclick=()=>{if(busy)return;el.value=v;el.classList.add('needs-review');$('verified').checked=false;pending=null;$('override').hidden=true;$('matchDetails').replaceChildren();notice('result')};panel.append(btn)}
+   }
+ }
+ $('verified').checked=false;pending=null;$('override').hidden=true;$('matchDetails').replaceChildren();notice('result');
+ panel.append(node('small',agree+' gelijk, '+added+' aangevuld, '+conflicts+' te vergelijken. AI kan zich vergissen.','muted'));
+ $('qrDetails').append(panel);
+ return {added,conflicts,agree};
+}
+
 function addScanSuggestion(label,values){
  const div=node('div',undefined,'ocr-field');div.append(node('strong',label));
  for(const [k,v] of Object.entries(values)){
@@ -163,7 +210,9 @@ $('ai').onclick=()=>run(async()=>{
 $('scan').onclick=()=>run(async()=>{
  if(!file)throw Error('Kies eerst een document.');
  $('progress').hidden=false;$('progress').value=0;$('qrDetails').replaceChildren();notice('scanMessage','Document voorbereiden…');
- let worker,images,step=0,passes=[],texts=[],warnings=[],qr=[];
+ let worker,images,step=0,passes=[],texts=[],warnings=[],qr=[],vision=[],visionError='';
+ const useVision=mode==='cloud'&&$('visionConsent').checked;
+ async function tryVision(canvas,index,total){if(!useVision||visionError)return;if(index>3)return;try{notice('scanMessage','AI leest pagina '+index+'…');vision.push(await visionPage(canvas))}catch(e){visionError=errorText(e)}}
  try{
    async function getWorker(){
      if(worker)return worker;
@@ -182,7 +231,7 @@ $('scan').onclick=()=>run(async()=>{
      await readPDF(file,async({canvas,text,index,total})=>{
        notice('scanMessage','PDF-pagina '+index+' van '+total+' uitlezen…');
        if(index===1){$('preview').src=canvas.toDataURL('image/jpeg',.82);$('preview').hidden=false;}
-       await qrScan(canvas);addText(text,'PDF-pagina '+index);
+       await qrScan(canvas);addText(text,'PDF-pagina '+index);await tryVision(canvas,index,total);if(useVision&&index===4)warnings.push('AI bekijkt maximaal de eerste 3 PDF-pagina’s; OCR leest alle pagina’s.');
        const extracted=extractDetailed(text).fields;
        if(text.trim().length<80||!extracted.amount_cents||(!extracted.invoice_no&&!extracted.reference))await recognize(canvas,3,'PDF OCR '+index);
        $('progress').value=index/total;
@@ -190,16 +239,18 @@ $('scan').onclick=()=>run(async()=>{
    }else{
      images=await prepareImages(file);const q=quality(images[0]);
      if(q.dark)warnings.push('Foto lijkt donker.');if(q.soft)warnings.push('Foto lijkt mogelijk onscherp.');if(q.small)warnings.push('Foto heeft een lage resolutie.');
-     await qrScan(images[0]);await qrScan(images[1]);
+     await qrScan(images[0]);await qrScan(images[1]);await tryVision(images[0],1,1);
      await recognize(images[0],3,'Normale scan');$('progress').value=.33;
      await recognize(images[1],3,'Contrastscan');$('progress').value=.66;
      const m=mergeExtractions(passes);
      if(Object.values(m.details).some(x=>!x.value||x.weak||x.ambiguous))await recognize(images[1],11,'Verspreide tekst');
    }
-   if(!passes.length&&!qr.length)throw Error('Geen leesbare gegevens gevonden. Kies een scherpere foto of vul handmatig in.');
+   if(!passes.length&&!qr.length&&!vision.length)throw Error('Geen leesbare gegevens gevonden. Kies een scherpere foto of vul handmatig in.');
    $('raw').value=texts.map(t=>'--- '+t.name+' ---\n'+t.text).join('\n\n');
-   const merged=mergeExtractions(passes);applyText(merged);
+   const merged=passes.length?mergeExtractions(passes):extractDetailed('');applyText(merged);
    for(const q of qr)addScanSuggestion('EPC-betaal-QR — controleer rekening en bedrag',q);
+   if(vision.length){const v=compareVision(vision);warnings.push('Vision AI: '+v.added+' aangevuld, '+v.conflicts+' te vergelijken, '+v.agree+' gelijk. Controleer alles met het origineel.');}
+   if(visionError)warnings.push(visionError);
    if(warnings.length||qr.length)notice('scanMessage',$('scanMessage').textContent+'\n'+warnings.join(' ')+(qr.length?'\nBetaal-QR gevonden. Klik op de juiste voorstellen.':''),'warn');
    $('progress').value=1;
  }finally{
