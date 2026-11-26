@@ -10,6 +10,9 @@
 .needs-review{border:2px solid #c68c23;background:#fffbef}.ocr-field{border-top:1px solid #dce5df;padding:10px 0}.ocr-choice{display:flex;align-items:center;gap:10px;margin:6px 0;flex-wrap:wrap}.ocr-choice small{flex:1;min-width:120px;overflow-wrap:anywhere}.ocr-choice button{overflow-wrap:anywhere;max-width:100%}
 .photo-gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin-top:12px}.photo-card{margin:0;border:1px solid #dce5df;border-radius:10px;padding:8px;min-width:0}.photo-card img{width:100%;height:150px;object-fit:contain;background:#eef1ee}.photo-card figcaption{font-size:13px;overflow-wrap:anywhere}.photo-card button{font-size:13px;width:100%;padding:7px;margin-top:8px}.entry-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}.entry-layout .photo-gallery{margin-top:0}dialog{width:min(96vw,1100px);max-height:94vh;border:0;border-radius:12px;padding:15px;background:#fff;color:#19302e}dialog::backdrop{background:#000a}#fullPhoto{display:block;max-height:none;max-width:100%;width:auto;margin:12px auto}#photoDialog button{position:sticky;top:0}#verifyGrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}#verifyGrid img{max-height:none;width:100%}@media(max-width:700px){.entry-layout,#verifyGrid{grid-template-columns:1fr}}
 .dash-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.dash-tile{padding:13px;background:#f0f5f1;border-radius:12px;min-width:0}.dash-tile strong{display:block;font-size:clamp(18px,3vw,26px);overflow-wrap:anywhere}.dash-bar{display:flex;justify-content:space-between;gap:8px;margin:8px 0 3px}.bar-track{height:8px;background:#e3ebe5;border-radius:8px;overflow:hidden}.bar-fill{height:100%;background:#377c62}.jumpnav{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.jumpnav a{padding:8px 12px;background:#e9f1ec;border-radius:9px;text-decoration:none;font-weight:650}#preview{transform-origin:center center}aside{overflow:hidden}#openOriginal{display:inline-block;margin:8px 0}@media(max-width:700px){.dash-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Mobile-first, three-screen navigation */
+:root{background:#f5f7f5}header{padding:18px 20px}header h1{font-size:25px}header p{font-size:13px}main{max-width:780px;padding:14px 14px 48px}section{border-radius:15px;box-shadow:0 2px 8px #173f3908;padding:18px}.topbar{padding:10px 0;margin:0 0 8px;background:transparent;border:0;box-shadow:none}.topbar h2{font-size:16px;margin:0}.topbar button{font-size:13px;min-height:38px;padding:8px 10px}.tabbar{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;background:#e5ece7;border-radius:12px;padding:5px;margin:0 0 15px;position:sticky;top:0;z-index:2}.tabbar button{background:transparent;color:var(--green);padding:10px 4px;font-size:14px}.tabbar button[aria-pressed=true]{background:var(--green);color:white}.primary-wide{width:100%;margin:12px 0 4px}.file-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}.file-action{position:relative;text-align:center;border:1px solid #c4d2cb;border-radius:12px;padding:16px 8px;background:#f5f8f6;cursor:pointer;margin:0;overflow:hidden}.file-action span{display:block;font-size:22px;line-height:1.4}.file-action input{position:absolute;opacity:0;inset:0;width:100%;height:100%;margin:0;cursor:pointer}.file-action:focus-within{outline:3px solid #c38324}.minor{font-size:13px;color:var(--muted)}.advanced{border-top:1px solid #e0e7e2;padding-top:10px;margin-top:12px}.advanced summary{font-weight:600;color:var(--green);font-size:14px}.dash-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dash-tile:first-child{background:#e2eee6}.dash-tile strong{font-size:26px}.verify-form button[type=submit],#login button[type=submit]{width:100%}.verify-form .needs-review{border-color:#b98522}.scan-preview{margin:0 0 14px;grid-row:1}.scan-preview img{max-height:240px;display:block;margin:auto}#verifyGrid{grid-template-columns:1fr}#setup{max-width:440px;margin:20px auto}#setup h2{font-size:23px}#cloud>summary{display:none}.login-note{font-size:12px;color:var(--muted)}.quiet-button{background:transparent!important;color:var(--muted)!important;text-decoration:underline;font-size:13px}.notice{font-size:14px}.archive-filters{margin-top:8px}.file-status{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
 </style>
 <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
@@ -19,73 +22,72 @@
 <header><div><h1>FactuurCheck</h1><p>Scan. Controleer. Betaal maar één keer.</p></div></header>
 <main>
 <section id="setup">
-<h2>Kies hoe je wilt werken</h2>
-<p class="muted">De lokale testmodus bewaart gegevens uitsluitend in deze browser. De gezinsmodus gebruikt een gedeelde, afgeschermde database.</p>
-<div class="actions"><button id="local">Lokale test starten</button></div>
+<h2>Welkom bij Goedendagstraat</h2>
+<p class="muted">Log in om je facturen te bekijken en te scannen.</p>
 <details id="cloud" open><summary>Inloggen bij Goedendagstraat</summary>
-<p class="notice warn">Dit is een ontwikkelversie. Gebruik alleen een apart Supabase-testproject en fictieve facturen. De lokale facturen worden niet automatisch geïmporteerd.</p><form id="login">
+<form id="login">
 <div hidden><label>Supabase project-URL<input id="url" type="url" required readonly value="https://ggsgwcfndqhbnnmbuwck.supabase.co" placeholder="https://…supabase.co" autocomplete="off"></label>
 <label>Publieke publishable / anon key<input id="key" required readonly value="sb_publishable_ZTrVcFAG9mEGSYeby41TDA_R-SAvzOO" autocomplete="off" placeholder="sb_publishable_… of anon JWT"></label>
 <small>Gebruik nooit een secret- of service_role-key. Configuratie wordt op dit toestel onthouden.</small></div>
-<label>E-mailadres van het gezinsaccount<input id="email" type="email" autocomplete="username" required></label>
+<label>E-mailadres<input id="email" type="email" autocomplete="username" required></label>
 <label>Wachtwoord<input id="password" type="password" autocomplete="current-password" required></label>
 <button type="submit">Inloggen</button>
 </form>
 </details>
+<p class="login-note">Testversie — gebruik voorlopig fictieve facturen.</p><details class="advanced"><summary>Lokale testmodus</summary><p class="minor">Alleen op dit toestel, niet gedeeld.</p><button id="local" class="secondary">Lokale test starten</button></details>
 <div id="setupMessage" role="alert" class="notice error" hidden></div>
 </section>
 <div id="workspace" hidden>
-<section>
-<div class="line"><div><h2 id="modeTitle">Testmodus</h2><small id="modeText"></small></div><button class="secondary" id="logout">Wisselen / uitloggen</button></div>
+<section class="topbar">
+<div class="line"><div><h2 id="modeTitle">Testmodus</h2><small id="modeText"></small></div><button class="secondary" id="logout">Uitloggen</button></div>
 <div id="global" class="notice" role="status" aria-live="polite" hidden></div>
 </section>
-<section id="dashboard"><h2>Jouw overzicht</h2><div class="dash-grid"><div class="dash-tile"><small>Bevestigd openstaand</small><strong id="dashOpen">€ 0</strong></div><div class="dash-tile"><small>Betaald deze maand</small><strong id="dashPaid">€ 0</strong></div><div class="dash-tile"><small>Controle vereist</small><strong id="dashReview">0</strong></div><div class="dash-tile"><small>Vervallen</small><strong id="dashLate">0</strong></div></div><p id="dashSoon" class="muted"></p><small>Bedragen op controle zijn niet meegeteld als bevestigd openstaand. Alleen nieuwe geregistreerde betalingen tellen mee in de betaalstatistiek.</small><nav class="jumpnav" aria-label="Navigatie"><a href="#scanSection">Scannen</a><a href="#archiveSection">Archief</a><a href="#stats">Statistieken</a></nav><details id="stats"><summary>Uitgaven per categorie en maand</summary><h3>Deze maand</h3><div id="dashCategories"></div><h3>Recente maanden</h3><div id="dashMonths"></div></details></section>
-<section id="scanSection">
-<h2>1. Factuur scannen</h2>
-<p class="muted">Fotografeer een volledige, scherpe factuur of kies een afbeelding of PDF (max. 20 MB, 20 pagina’s). De OCR draait op dit toestel. Bij registratie wordt de originele foto bewaard in het lokale dossier.</p>
-<label>Camera<input id="camera" type="file" accept="image/*" capture="environment"></label>
-<label>Afbeelding of PDF kiezen<input id="file" type="file" accept="image/*,application/pdf,.pdf"></label>
+<nav class="tabbar" aria-label="Hoofdnavigatie"><button id="tabHome" aria-pressed="true" type="button">Overzicht</button><button id="tabScan" aria-pressed="false" type="button">Scannen</button><button id="tabArchive" aria-pressed="false" type="button">Archief</button></nav>
+<section id="dashboard"><h2>Jouw facturen</h2><div class="dash-grid"><div class="dash-tile"><small>Openstaand</small><strong id="dashOpen">€ 0</strong></div><div class="dash-tile"><small>Betaald deze maand</small><strong id="dashPaid">€ 0</strong></div><div class="dash-tile"><small>Controle vereist</small><strong id="dashReview">0</strong></div><div class="dash-tile"><small>Vervallen</small><strong id="dashLate">0</strong></div></div><p id="dashSoon" class="muted"></p><small>Facturen op controle tellen niet mee bij openstaand.</small><button class="primary-wide" id="startScan" type="button">+ Factuur scannen</button><details id="stats" class="advanced"><summary>Statistieken bekijken</summary><h3>Deze maand</h3><div id="dashCategories"></div><h3>Recente maanden</h3><div id="dashMonths"></div></details></section>
+<section id="scanSection" hidden>
+<h2>Nieuwe factuur</h2>
+<p class="muted">Maak een foto of kies een PDF.</p>
+<div class="file-actions"><label class="file-action"><span aria-hidden="true">📷</span>Foto maken<input id="camera" type="file" accept="image/*" capture="environment"></label><label class="file-action"><span aria-hidden="true">📄</span>Bestand kiezen<input id="file" type="file" accept="image/*,application/pdf,.pdf"></label></div><p id="chosenFile" class="file-status" aria-live="polite">Nog geen bestand gekozen.</p>
 
-<div id="visionOptions" hidden><label><input id="visionConsent" type="checkbox" style="display:inline;width:auto;margin-right:6px"> Extra AI-beeldherkenning gebruiken (Cloudflare)</label><small>Met deze keuze worden foto’s of maximaal de eerste 3 PDF-pagina’s naar Cloudflare gestuurd. Alleen gebruiken met toestemming voor de gegevens op de factuur. Maximaal 12 pagina-aanvragen per dag voor het gezin. OCR blijft lokaal en werkt ook zonder AI.</small></div>
-<div class="actions"><button id="scan" disabled>Factuur uitlezen (meerdere scans)</button><button id="rotate" class="secondary">Foto 90° draaien</button><button id="reset" class="secondary">Nieuwe scan / wissen</button></div>
+<div id="visionOptions" hidden><label><input id="visionConsent" type="checkbox" style="display:inline;width:auto;margin-right:6px"> Slim scannen met AI</label><small>Stuurt je foto of de eerste 3 PDF-pagina’s naar Cloudflare. Alleen met jouw toestemming. Max. 12 AI-pagina’s per dag.</small></div>
+<button id="scan" class="primary-wide" disabled>Factuur scannen</button>
 <progress id="progress" max="1" value="0" hidden></progress>
 <div id="scanMessage" role="status" aria-live="polite" class="notice" hidden></div>
-<details><summary>Herkende tekst per scanronde bekijken of plakken</summary><label>Tekst<textarea id="raw" rows="5"></textarea></label><button id="parse" class="secondary">Gegevens uit tekst halen</button></details><div class="actions"><button id="ai" class="secondary">Extra lokale AI-herkenning</button></div><small>Optioneel: alleen op browsers met ingebouwde lokale AI. Deze knop gebruikt uitsluitend lokale AI. Cloudflare AI is hierboven afzonderlijk opt-in.</small>
+<details class="advanced" id="scanAdvanced"><summary>Extra scanopties</summary><div class="actions"><button id="rotate" class="secondary">Foto draaien</button><button id="reset" class="secondary">Nieuwe scan</button></div><details><summary>Herkende tekst</summary><label>Tekst<textarea id="raw" rows="5"></textarea></label><button id="parse" class="secondary">Gegevens uit tekst halen</button></details><div class="actions"><button id="ai" class="secondary">Extra lokale AI-herkenning</button></div><small>Alleen op browsers met ingebouwde lokale AI.</small></details>
 </section>
-<section>
-<h2>2. Gegevens controleren</h2>
-<p class="muted">OCR kan fouten maken. Vergelijk alle velden met de originele factuur. De voorgestelde leverancier moet je altijd zelf bevestigen of invullen.</p>
-<div id="verifyGrid"><div><div id="ocrDetails" aria-live="polite"></div><div id="qrDetails" aria-live="polite"></div>
-<form id="invoiceForm">
+<section id="verifySection" hidden>
+<h2>Controleer je factuur</h2>
+<p class="muted">Vergelijk de gegevens met je factuur. Oranje velden vragen extra aandacht.</p>
+<div id="verifyGrid"><div><form id="invoiceForm" class="verify-form">
 <div class="fields">
 <label class="full">Leverancier *<input id="supplier" required maxlength="180" placeholder="bv. Telenet"></label>
-<label>Factuurnummer<input id="invoice_no" maxlength="100" placeholder="2026-00123"></label>
-<label>Factuurdatum<input id="invoice_date" type="date"></label><label>Vervaldatum<input id="due_date" type="date"></label>
+<label>Factuurnummer / kenmerk<input id="invoice_no" maxlength="100" placeholder="2026-00123"></label>
+<label>Vervaldatum<input id="due_date" type="date"></label>
 <label>Bedrag in euro *<input id="amount" inputmode="decimal" required placeholder="124,50"></label>
 <label>Gestructureerde mededeling<input id="reference" inputmode="numeric" maxlength="24" placeholder="+++123/4567/89002+++"></label>
 <label class="full">IBAN<input id="iban" maxlength="42" placeholder="BE…"></label>
 </div>
-<label>Categorie<select id="category"><option>Overige</option><option>Overheid</option><option>Energie</option><option>Telecom</option><option>Water</option><option>Gezondheid</option><option>Verzekering</option><option>Wonen</option><option>Vervoer</option><option>Onderwijs</option><option>Voeding</option></select></label><label>Soort document<select id="document_type"><option value="invoice">Factuur / aanslag / betalingsverzoek</option><option value="reminder">Herinnering / aanmaning</option><option value="collection">Incasso / dwangbevel</option><option value="credit">Creditnota</option></select></label>
+<details id="invoiceExtra" class="advanced"><summary>Meer factuurgegevens</summary><label>Factuurdatum<input id="invoice_date" type="date"></label><label>Categorie<select id="category"><option>Overige</option><option>Overheid</option><option>Energie</option><option>Telecom</option><option>Water</option><option>Gezondheid</option><option>Verzekering</option><option>Wonen</option><option>Vervoer</option><option>Onderwijs</option><option>Voeding</option></select></label></details><label>Soort document<select id="document_type"><option value="invoice">Factuur / aanslag / betalingsverzoek</option><option value="reminder">Herinnering / aanmaning</option><option value="collection">Incasso / dwangbevel</option><option value="credit">Creditnota</option></select></label>
 <label>Oorspronkelijke factuurnummers / dossierkenmerken<input id="related_ids" maxlength="300" placeholder="bv. 2026-001 / DOS-123"></label>
-<div class="fields"><label>Oorspronkelijk bedrag<input id="original_amount" inputmode="decimal" placeholder="optioneel"></label><label>Herinneringskosten<input id="fee_amount" inputmode="decimal" placeholder="optioneel"></label></div>
-<small>Factuurnummer, dossierkenmerk of geldige mededeling is verplicht. Originele foto of PDF verplicht.</small>
+<details id="reminderExtra" class="advanced"><summary>Bedragen van de herinnering</summary><div class="fields"><label>Oorspronkelijk bedrag<input id="original_amount" inputmode="decimal" placeholder="optioneel"></label><label>Herinneringskosten<input id="fee_amount" inputmode="decimal" placeholder="optioneel"></label></div>
+</details><small>Factuurnummer, dossierkenmerk of mededeling is nodig.</small><details id="suggestions" class="advanced"><summary>Scanvoorstellen en verschillen</summary><div id="ocrDetails" aria-live="polite"></div><div id="qrDetails" aria-live="polite"></div></details>
 <label><input id="verified" type="checkbox" required style="display:inline;width:auto;margin-right:6px"> Ik heb de gegevens gecontroleerd.</label>
-<button type="submit">Controleren en registreren</button>
-</form></div><aside><h3>Origineel document</h3><img id="preview" alt="Voorbeeld van gekozen factuur" hidden><a id="openOriginal" target="_blank" rel="noopener" hidden>Open origineel bestand</a><p class="muted">Vergelijk het document met de herkende gegevens.</p></aside></div>
+<button type="submit">Controleren en opslaan</button>
+</form></div><aside class="scan-preview"><h3>Origineel document</h3><img id="preview" alt="Voorbeeld van gekozen factuur" hidden><a id="openOriginal" target="_blank" rel="noopener" hidden>Open origineel bestand</a></aside></div>
 <div id="result" role="status" aria-live="polite" class="notice" hidden></div>
 <div id="matchDetails"></div>
 <button id="override" class="secondary" hidden>Toch nieuwe factuur registreren</button>
 </section>
-<section id="archiveSection">
-<div class="line"><h2>3. Factuurgeschiedenis</h2><button id="refresh" class="secondary">Vernieuwen</button></div>
-<p class="muted">Reserveer een factuur vóór je betaalt. Bevestig pas na je bankbetaling. Een nieuwe factuur is niet automatisch onbetaald bij de bank.</p>
+<section id="archiveSection" hidden>
+<div class="line"><h2>Archief</h2><button id="refresh" class="secondary">Vernieuwen</button></div>
+<p class="muted">Controleer altijd je bank vóór je betaalt.</p>
 <label>Zoeken<input id="search" type="search" placeholder="Leverancier, nummer, mededeling"></label>
-<label>Status<select id="filter"><option value="">Alle statussen</option><option value="review">Controle vereist</option><option value="unpaid">Nog te betalen</option><option value="partial">Gedeeltelijk betaald</option><option value="paying">Betaling bezig</option><option value="paid">Betaald</option></select></label>
-<label>Categorie<select id="categoryFilter"><option value="">Alle categorieën</option><option>Overige</option><option>Overheid</option><option>Energie</option><option>Telecom</option><option>Water</option><option>Gezondheid</option><option>Verzekering</option><option>Wonen</option><option>Vervoer</option><option>Onderwijs</option><option>Voeding</option></select></label><p id="summary" class="muted"></p><div id="history"></div>
+<details class="advanced archive-filters"><summary>Filteren</summary><label>Status<select id="filter"><option value="">Alle statussen</option><option value="review">Controle vereist</option><option value="unpaid">Nog te betalen</option><option value="partial">Gedeeltelijk betaald</option><option value="paying">Betaling bezig</option><option value="paid">Betaald</option></select></label>
+<label>Categorie<select id="categoryFilter"><option value="">Alle categorieën</option><option>Overige</option><option>Overheid</option><option>Energie</option><option>Telecom</option><option>Water</option><option>Gezondheid</option><option>Verzekering</option><option>Wonen</option><option>Vervoer</option><option>Onderwijs</option><option>Voeding</option></select></label></details><p id="summary" class="muted"></p><div id="history"></div>
 <div class="actions" id="localTools" hidden><button id="clearLocal" class="danger">Lokale testgegevens wissen</button></div>
 </section>
 </div>
-<small>FactuurCheck · v0.6.0 · Geen automatische bankcontrole. Gebruik testgegevens tot je de werking hebt gecontroleerd.</small>
+<small>FactuurCheck · v0.7.0 · Testversie · Geen automatische bankcontrole</small>
 </main><dialog id="photoDialog"><button id="closePhoto">Foto sluiten</button><img id="fullPhoto" alt="Originele factuur op volledige grootte"></dialog>
 <script type="module" src="./app.mjs?v=0.6.0"></script>
 </body></html>
