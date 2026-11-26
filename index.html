@@ -14,8 +14,6 @@
 /* Mobile-first, three-screen navigation */
 :root{background:#f5f7f5}header{padding:18px 20px}header h1{font-size:25px}header p{font-size:13px}main{max-width:780px;padding:14px 14px 48px}section{border-radius:15px;box-shadow:0 2px 8px #173f3908;padding:18px}.topbar{padding:10px 0;margin:0 0 8px;background:transparent;border:0;box-shadow:none}.topbar h2{font-size:16px;margin:0}.topbar button{font-size:13px;min-height:38px;padding:8px 10px}.tabbar{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;background:#e5ece7;border-radius:12px;padding:5px;margin:0 0 15px;position:sticky;top:0;z-index:2}.tabbar button{background:transparent;color:var(--green);padding:10px 4px;font-size:14px}.tabbar button[aria-pressed=true]{background:var(--green);color:white}.primary-wide{width:100%;margin:12px 0 4px}.file-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}.file-action{position:relative;text-align:center;border:1px solid #c4d2cb;border-radius:12px;padding:16px 8px;background:#f5f8f6;cursor:pointer;margin:0;overflow:hidden}.file-action span{display:block;font-size:22px;line-height:1.4}.file-action input{position:absolute;opacity:0;inset:0;width:100%;height:100%;margin:0;cursor:pointer}.file-action:focus-within{outline:3px solid #c38324}.minor{font-size:13px;color:var(--muted)}.advanced{border-top:1px solid #e0e7e2;padding-top:10px;margin-top:12px}.advanced summary{font-weight:600;color:var(--green);font-size:14px}.dash-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dash-tile:first-child{background:#e2eee6}.dash-tile strong{font-size:26px}.verify-form button[type=submit],#login button[type=submit]{width:100%}.verify-form .needs-review{border-color:#b98522}.scan-preview{margin:0 0 14px;grid-row:1}.scan-preview img{max-height:240px;display:block;margin:auto}#verifyGrid{grid-template-columns:1fr}#setup{max-width:440px;margin:20px auto}#setup h2{font-size:23px}#cloud>summary{display:none}.login-note{font-size:12px;color:var(--muted)}.quiet-button{background:transparent!important;color:var(--muted)!important;text-decoration:underline;font-size:13px}.notice{font-size:14px}.archive-filters{margin-top:8px}.file-status{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
 </style>
-<script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
 </head>
 <body>
@@ -87,8 +85,8 @@
 <div class="actions" id="localTools" hidden><button id="clearLocal" class="danger">Lokale testgegevens wissen</button></div>
 </section>
 </div>
-<small>FactuurCheck · v0.7.1 · Testversie · Geen automatische bankcontrole</small>
+<small>FactuurCheck · v0.7.2 · Testversie · Geen automatische bankcontrole</small>
 </main><dialog id="photoDialog"><button id="closePhoto">Foto sluiten</button><img id="fullPhoto" alt="Originele factuur op volledige grootte"></dialog>
-<script type="module" src="./app.mjs?v=0.7.1"></script>
+<script type="module" src="./app.mjs?v=0.7.2"></script>
 </body></html>
 <!-- Herpublicatie FactuurCheck -->
