@@ -2,9 +2,10 @@ import {norm,reference,amount,iban,date,extractDetailed,mergeExtractions,documen
 import {documentLabels,decideRegistration,photoHash,savePhoto,loadPhoto,clearPhotos} from './archive.mjs?v=0.4.0';
 import {parseEpc,scanQR,dueDate,categoryFor,isPdf,readPDF,quality,localAI} from './scanner.mjs?v=0.4.0';
 import {openBalance,recordPayment,reversePayment,reconcile,dashboard} from './ledger.mjs?v=0.4.0';
+import {createCloudAdapter} from './cloud.mjs?v=0.5.1';
 const $=id=>document.getElementById(id);
 const LOCAL='factuurcheck.local.v1', CONFIG='factuurcheck.config.v1';
-let mode='', client=null, items=[], file=null, previewUrl='', pending=null, busy=false, archiveUrls=[],rotation=0;
+let mode='', client=null, cloudAdapter=null, actorId=null, items=[], file=null, previewUrl='', pending=null, busy=false, archiveUrls=[],rotation=0;
 function clearArchiveUrls(){archiveUrls.forEach(URL.revokeObjectURL);archiveUrls=[]}
 const labels={unpaid:'Nog te betalen',paying:'Betaling bezig',paid:'Betaald'};
 const money=cents=>new Intl.NumberFormat('nl-BE',{style:'currency',currency:'EUR'}).format(cents/100);
@@ -19,13 +20,11 @@ async function run(fn,where='global'){
 }
 function readLocal(){const parsed=JSON.parse(localStorage.getItem(LOCAL)||'[]');if(!Array.isArray(parsed))throw Error('Lokale opslag is beschadigd. Wis niet zomaar je gegevens.');return parsed}
 function saveLocal(rows){localStorage.setItem(LOCAL,JSON.stringify(rows))}
-async function rpc(name,args){const {data,error}=await client.rpc(name,args);if(error)throw error;return data}
+
 async function refresh(){
   if(mode==='local'){items=readLocal()}
   else if(mode==='cloud'){
-    const all=[];let start=0;
-    for(;;){const {data,error}=await client.from('invoices').select('*').order('created_at',{ascending:false}).order('id',{ascending:false}).range(start,start+499);if(error)throw error;all.push(...data);if(data.length<500)break;start+=500}
-    items=all;
+    try{const updated=await cloudAdapter.load();if(JSON.stringify(updated)===JSON.stringify(items))return;items=updated}catch(e){items=[];render();throw e}
   }
   render();
 }
@@ -38,9 +37,8 @@ function enter(next){
   notice('global');resetForm();render();
 }
 $('local').onclick=()=>run(async()=>{readLocal();enter('local');await refresh()},'setupMessage');
-try{const c=JSON.parse(localStorage.getItem(CONFIG)||'null');if(c){$('url').value=c.url;$('key').value=c.key;$('email').value=c.email;$('cloud').open=true}}catch{}
+try{const c=JSON.parse(localStorage.getItem(CONFIG)||'null');if(c){$('email').value=c.email;$('cloud').open=true}}catch{}
 function validateConfig(){
-  throw Error('Gezinsmodus is tijdelijk uitgeschakeld voor v0.4.0: het nieuwe fotoarchief en herinneringsdossiers moeten eerst beveiligd worden geïmplementeerd en getest in Supabase. Gebruik lokale testmodus.');
   const url=new URL($('url').value.trim()), key=$('key').value.trim();
   if(url.protocol!=='https:'||!/^[a-z0-9-]+\.supabase\.co$/.test(url.hostname)||url.pathname!=='/'||url.search||url.hash||url.port||url.username||url.password)throw Error('Gebruik de HTTPS project-URL van Supabase, zonder pad.');
   if(!key.startsWith('sb_publishable_')){
@@ -54,13 +52,12 @@ $('login').onsubmit=e=>{e.preventDefault();run(async()=>{
   const config=validateConfig();client=window.supabase.createClient(config.url,config.key,{auth:{persistSession:false,autoRefreshToken:true}});
   const {error}=await client.auth.signInWithPassword({email:config.email,password:$('password').value});
   $('password').value='';if(error)throw error;
-  const m=await client.from('household_members').select('household_id').maybeSingle();
-  if(m.error||!m.data){await client.auth.signOut();throw Error('Geen toegang tot een huishouden. Vraag de beheerder om je account te koppelen.')}
-  localStorage.setItem(CONFIG,JSON.stringify(config));enter('cloud');
-  try{await refresh()}catch(e){notice('global','Geschiedenis niet geladen: '+errorText(e),'error')}
+  cloudAdapter=createCloudAdapter(client);
+  try{const auth=await client.auth.getUser();if(auth.error||!auth.data.user)throw Error('Ongeldige sessie.');actorId=auth.data.user.id;const initial=await cloudAdapter.load();localStorage.setItem(CONFIG,JSON.stringify({email:config.email}));enter('cloud');items=initial;render()}catch(e){await client.auth.signOut({scope:'local'});cloudAdapter=null;actorId=null;client=null;throw e}
 },'setupMessage')};
 $('logout').onclick=()=>run(async()=>{
-  if(mode==='cloud'&&client){const {error}=await client.auth.signOut();if(error)throw error}
+  if(mode==='cloud'&&cloudAdapter)await cloudAdapter.logout();
+  cloudAdapter=null;actorId=null;
   client=null;mode='';items=[];resetForm();render();clearArchiveUrls();$('workspace').hidden=true;$('setup').hidden=false;
 });
 function choose(f){
@@ -239,9 +236,9 @@ async function readInvoice(){
 function describe(x){return [x.supplier,money(x.amount_cents),x.invoice_no?'Nr. '+x.invoice_no:'',x.related_ids?'Dossier '+x.related_ids:'',x.invoice_date||'',x.reference||'',labels[x.status],x.review_required?'Controle vereist':'',x.paid_at?'Bevestigd: '+new Date(x.paid_at).toLocaleString('nl-BE'):''].filter(Boolean).join(' · ')}
 async function withLocalLock(fn){return navigator.locks?.request?navigator.locks.request('factuurcheck-write',fn):fn()}
 async function register(v,choice={}){
-  if(mode!=='local')throw Error('Fotoarchief is voorlopig alleen beschikbaar in de lokale testmodus.');
+  if(!['local','cloud'].includes(mode))throw Error('Open eerst een archief.');
   notice('result');pending=null;$('override').hidden=true;$('matchDetails').replaceChildren();
-  const r=await withLocalLock(async()=>{
+  const r=mode==='cloud'?await cloudAdapter.action({action:'register',document:v,...choice},file):await withLocalLock(async()=>{
     const rows=readLocal();
     const outcome=decideRegistration(rows,v,{...choice,documentId:crypto.randomUUID(),invoiceId:crypto.randomUUID(),now:new Date().toISOString()});
     if(outcome.rows){await savePhoto(v.photo_hash,file);saveLocal(outcome.rows)}
@@ -261,7 +258,7 @@ async function register(v,choice={}){
   }else{
     const x=r.invoice;
     if(r.kind==='review')notice('result','CONTROLE VEREIST — document bewaard in het dossier. Betaal niets opnieuw voordat je bank en leverancier het werkelijke openstaande saldo bevestigen.\n'+describe(x),'warn');
-    else if(r.kind==='exact')notice('result',(x.status==='paid'?(x.closed_reason==='reconciled'?'AFGESLOTEN — geen bevestigd openstaand saldo.':'AL BETAALD — niet opnieuw betalen.'):x.status==='paying'?'BETALING BEZIG — niet opnieuw betalen.':'AL GEREGISTREERD — geen tweede schuld.')+'\n'+describe(x)+'\nFoto bewaard in het dossier.',x.status==='paid'?'error':'warn');
+    else if(r.kind==='exact')notice('result',(x.status==='paid'?(x.closed_reason==='reconciled'?'AFGESLOTEN — geen bevestigd openstaand saldo.':'AL BETAALD — niet opnieuw betalen.'):x.status==='paying'?'BETALING BEZIG — niet opnieuw betalen.':'AL GEREGISTREERD — geen tweede schuld.')+'\n'+describe(x)+'\nOrigineel bestand bewaard in het dossier.',x.status==='paid'?'error':'warn');
     else notice('result','NIEUWE FACTUUR — document en foto opgeslagen. Geen eerdere match in dit archief. Controleer je bank vóór betaling.\n'+describe(x),'good');
     appendPhotos($('matchDetails'),x);$('verified').checked=false;
   }
@@ -281,8 +278,8 @@ function appendPhotos(parent,x){
    img.alt='Origineel document';img.loading='lazy';
    const b=node('button','Open originele foto','secondary');b.type='button';b.disabled=true;
    if(d.file_type==='application/pdf'){img.hidden=true;fig.append(node('strong','PDF-document'));}fig.append(img,cap,b);gallery.append(fig);
-   loadPhoto(d.photo_hash).then(blob=>{
-     if(!blob){fig.append(node('small','Foto ontbreekt in lokale opslag.','muted'));return}
+   (mode==='cloud'?cloudAdapter.original(d.photo_hash):loadPhoto(d.photo_hash)).then(blob=>{
+     if(!blob){fig.append(node('small','Origineel document ontbreekt.','muted'));return}
      if(!fig.isConnected)return;
      const url=URL.createObjectURL(blob);archiveUrls.push(url);b.dataset.archiveUrl=url;if(d.file_type!=='application/pdf')img.src=url;b.disabled=false;
      b.textContent=d.file_type==='application/pdf'?'Open originele PDF':'Open originele foto';
@@ -293,14 +290,15 @@ function appendPhotos(parent,x){
 }
 $('closePhoto').onclick=()=>{$('photoDialog').close();$('fullPhoto').removeAttribute('src')};
 function reviewDossier(x){return run(async()=>{
- if(mode!=='local')throw Error('Alleen lokale testmodus.');
+ 
  if(x.status==='paying')throw Error('Controleer eerst de lopende betaling en bevestig of annuleer de reservering.');
  const input=prompt('Controleer je bank EN de leverancier. Welk bedrag staat werkelijk nog open? Vul 0 in als niets meer verschuldigd is. Dit is niet automatisch het verschil tussen de facturen.','');
  if(input===null)return;
  const remaining=/^0(?:[,.]0{1,2})?$/.test(input.trim())?0:amount(input);
  if(remaining===null)throw Error('Vul een geldig saldo in.');
  if(!confirm('Bevestig dat je het werkelijke openstaande saldo van '+money(remaining)+' gecontroleerd hebt. Eerdere betaalgegevens blijven in het dossier.'))return;
- await withLocalLock(async()=>{
+ if(mode==='cloud')await cloudAdapter.action({action:'reconcile',invoiceId:x.id,cents:remaining,bankChecked:true,reason:x.documents?.at(-1)?.document_type==='credit'?'credit':'balance',note:'Saldo bevestigd na controle'});
+ else await withLocalLock(async()=>{
    const rows=readLocal(),current=rows.find(y=>y.id===x.id);
    if(!current||JSON.stringify(current)!==JSON.stringify(x))throw Error('Dossier is gewijzigd. Vernieuw en controleer opnieuw.');
    saveLocal(rows.map(y=>y.id===x.id?reconcile(y,remaining,new Date().toISOString(),'Saldo bevestigd na controle',x.documents?.at(-1)?.document_type==='credit'?'credit':'balance'):y));
@@ -325,6 +323,7 @@ function renderDashboard(){
  if(!months.childNodes.length)months.append(node('p','Nog geen betaalhistoriek.','muted'));
 }
 async function mutateRow(x,fn){
+ if(mode!=='local')throw Error('Deze actie is alleen lokaal beschikbaar.');
  await withLocalLock(async()=>{const rows=readLocal(),row=rows.find(y=>y.id===x.id);if(!row||JSON.stringify(row)!==JSON.stringify(x))throw Error('Dossier gewijzigd. Vernieuw en controleer opnieuw.');saveLocal(rows.map(y=>y.id===x.id?fn(row):y))});
  await refresh();
 }
@@ -335,14 +334,15 @@ function addPayment(x,partial=false){return run(async()=>{
  const when=prompt('Datum van de werkelijke bankbetaling (JJJJ-MM-DD)',localToday());if(when===null)return;if(!date(when)||when>localToday())throw Error('Ongeldige betalingsdatum.');
  const note=prompt('Optioneel: betalingsbewijsnummer of opmerking','');if(note===null)return;
  if(!confirm('Bevestig dat '+money(cents)+' daadwerkelijk betaald is. Er wordt geen overschrijving uitgevoerd.'))return;
- await mutateRow(x,row=>recordPayment(row,cents,new Date().toISOString(),crypto.randomUUID(),note,when));
+ if(mode==='cloud'){await cloudAdapter.action({action:'payment',invoiceId:x.id,reservationId:x.reservation?.id,cents,paymentDate:when,note,bankChecked:true,historical:x.status!=='paying'});await refresh()}
+ else await mutateRow(x,row=>recordPayment(row,cents,new Date().toISOString(),crypto.randomUUID(),note,when));
  notice('global','Betaling geregistreerd. Resterend saldo: '+money(balance-cents),'good');
 })}
 function flagReview(x){return run(async()=>{if(confirm('Zet het dossier op controle om het werkelijke saldo te bevestigen?'))await mutateRow(x,row=>({...row,review_required:true,review_reason:'Oude betaalstatus moet worden gecontroleerd.'}))})}
 function appendPayments(entry,x){
  if(!(x.payments||[]).length)return;
  const details=node('details');details.append(node('summary','Betalingshistoriek'));
- for(const p of x.payments){const reversed=(x.payments||[]).some(r=>r.kind==='reversal'&&r.reverses===p.id);details.append(node('p',(p.kind==='reversal'?'Correctie: ':'Betaling: ')+money(p.cents)+' · '+(p.payment_date||p.at.slice(0,10))+(reversed?' · gecorrigeerd':'')+(p.note?' · '+p.note:''),'muted'));if(p.kind==='payment'&&!reversed&&!x.review_required&&x.status!=='paying')action(details,'Corrigeer deze betaling','secondary',()=>run(async()=>{if(confirm('Bevestig dat deze registratie fout was. Het dossier wordt geblokkeerd tot je bankcontrole.'))await mutateRow(x,row=>reversePayment(row,p.id,new Date().toISOString()))}))}
+ for(const p of x.payments){const reversed=(x.payments||[]).some(r=>r.kind==='reversal'&&r.reverses===p.id);details.append(node('p',(p.kind==='reversal'?'Correctie: ':'Betaling: ')+money(p.cents)+' · '+(p.payment_date||p.at.slice(0,10))+(reversed?' · gecorrigeerd':'')+(p.note?' · '+p.note:''),'muted'));if(p.kind==='payment'&&!reversed&&!x.review_required&&x.status!=='paying')action(details,'Corrigeer deze betaling','secondary',()=>run(async()=>{if(confirm('Bevestig dat deze registratie fout was. Het dossier wordt geblokkeerd tot je bankcontrole.')){if(mode==='cloud'){await cloudAdapter.action({action:'reverse',invoiceId:x.id,paymentId:p.id,bankChecked:true});await refresh()}else await mutateRow(x,row=>reversePayment(row,p.id,new Date().toISOString()))}}))}
  entry.append(details);
 }
 
@@ -367,11 +367,12 @@ function render(){
     const buttons=node('div',undefined,'actions');
     if(x.review_required){entry.append(node('p',x.review_reason||'Controleer bank en leverancier.','notice warn'));if(x.status!=='paying')action(buttons,'Openstaand saldo controleren','',()=>reviewDossier(x));}
     if(x.status==='unpaid'&&!x.review_required){action(buttons,'Ik ga betalen','',()=>changeStatus(x,'paying'));action(buttons,'Al eerder betaald','secondary',()=>addPayment(x));action(buttons,'Deelbetaling registreren','secondary',()=>addPayment(x,true));}
-    if(x.status==='paying'){
+    if(x.status==='paying'&&mode==='cloud'&&x.reservation?.actor_id!==actorId){entry.append(node('p','Betaling gereserveerd door een ander gezinslid.','notice warn'))}
+    if(x.status==='paying'&&(mode==='local'||x.reservation?.actor_id===actorId)){
       action(buttons,'Betaling bevestigen','',()=>addPayment(x));action(buttons,'Deelbetaling bevestigen','secondary',()=>addPayment(x,true));
       action(buttons,'Reservering vrijgeven','secondary',()=>changeStatus(x,'unpaid'));
     }
-    if(x.status==='paid'&&!x.review_required&&!(x.payments||[]).length)action(buttons,'Oude betaalstatus controleren','secondary',()=>flagReview(x));
+    if(mode==='local'&&x.status==='paid'&&!x.review_required&&!(x.payments||[]).length)action(buttons,'Oude betaalstatus controleren','secondary',()=>flagReview(x));
     entry.append(buttons);appendPayments(entry,x);if(x.reviews?.length){const details=node('details');details.append(node('summary','Eerdere saldocontroles'));for(const audit of x.reviews)details.append(node('p',new Date(audit.at).toLocaleString('nl-BE')+' · vorig '+money(audit.previous_amount_cents)+' ('+labels[audit.previous_status]+') · bevestigd open '+money(audit.confirmed_open_cents),'muted'));entry.append(details)}outer.append(entry);const photos=node('aside');appendPhotos(photos,x);outer.append(photos);history.append(outer);
   }
 }
@@ -385,7 +386,10 @@ function changeStatus(x,next){return run(async()=>{
       if(!row||JSON.stringify(row)!==JSON.stringify(x))throw Error('Dossier gewijzigd. Vernieuw de lijst.');
       if(row.review_required&&row.status!=='paying')throw Error('Controleer eerst het dossier.');
       if(next==='paying'&&openBalance(row)<=0)throw Error('Geen openstaand saldo.');row.status=next;row.paid_at=null;saveLocal(rows);});
-    }else await rpc('set_invoice_status',{p_id:x.id,p_expected:x.status,p_next:next});
+    }else{
+      if(!['paying','unpaid'].includes(next))throw Error('Ongeldige statuswijziging.');
+      await cloudAdapter.action({action:next==='paying'?'reserve':'release',invoiceId:x.id,reservationId:x.reservation?.id,bankChecked:true});
+    }
     notice('global',next==='paying'?'Reservering bevestigd. Alleen nu mag je de betaling uitvoeren.':next==='paid'?'Betaling geregistreerd.':'Status teruggezet.','good');
   }catch(e){notice('global','Geen nieuwe bevestiging: '+errorText(e)+' Betaal niet op basis van een onbevestigde reservering.','error')}
   await refresh();
@@ -393,4 +397,5 @@ function changeStatus(x,next){return run(async()=>{
 $('categoryFilter').onchange=render;$('search').oninput=render;$('filter').onchange=render;$('refresh').onclick=()=>run(refresh);
 $('clearLocal').onclick=()=>run(async()=>{if(mode==='local'&&confirm('Alle lokale testfacturen definitief wissen?')){await withLocalLock(async()=>{localStorage.removeItem(LOCAL);await clearPhotos()});await refresh()}});
 window.addEventListener('focus',()=>{if(mode&&!busy)run(refresh)});
+setInterval(()=>{if(mode==='cloud'&&!busy)run(refresh)},30000);
 window.addEventListener('storage',e=>{if(mode==='local'&&e.key===LOCAL&&!busy)run(refresh)});

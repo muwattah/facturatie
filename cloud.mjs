@@ -3,6 +3,7 @@ const BUCKET='factuurcheck-private';
 export function createCloudAdapter(client){
  let household=null,revision=null;
  async function load(){
+   household=null;revision=null;
    const auth=await client.auth.getUser();
    if(auth.error||!auth.data.user)throw Error('Log opnieuw in.');
    const membership=await client.from('fc_members').select('household_id').eq('user_id',auth.data.user.id).single();
@@ -26,7 +27,8 @@ export function createCloudAdapter(client){
      throw Error('Actie niet bevestigd. Vernieuw het gedeelde archief en controleer de status voordat je betaalt.');
    }
    if(result.data.kind==='replayed'){revision=null;throw Error('Eerdere actie gevonden. Vernieuw het archief; dit is geen betaaltoestemming.')}
-   revision=result.data.revision;
+   // Force a successful reload before a second mutation. Possible matches do not mutate.
+   revision=result.data.kind==='possible'?result.data.revision:null;
    return result.data;
  }
  async function original(hash){
@@ -37,7 +39,7 @@ export function createCloudAdapter(client){
  }
  async function logout(){
    household=null;revision=null;
-   const r=await client.auth.signOut();if(r.error)throw r.error;
+   const r=await client.auth.signOut({scope:'local'});if(r.error)throw r.error;
  }
  return {load,action,original,logout};
 }

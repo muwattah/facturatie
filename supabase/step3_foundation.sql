@@ -41,6 +41,10 @@ alter table public.fc_audit enable row level security;
 revoke all on public.fc_households,public.fc_members,public.fc_archives,public.fc_audit from public,anon,authenticated;
 grant select on public.fc_households,public.fc_members,public.fc_archives,public.fc_audit to authenticated;
 grant select on public.fc_households,public.fc_members,public.fc_archives,public.fc_audit to service_role;
+grant update on public.fc_archives to service_role;
+grant insert on public.fc_audit to service_role;
+grant usage,select on sequence public.fc_audit_id_seq to service_role;
+grant update on public.fc_members to service_role;
 create policy fc_members_self on public.fc_members for select to authenticated using(user_id=(select auth.uid()));
 create policy fc_household_read on public.fc_households for select to authenticated using(
  id in (select household_id from public.fc_members where user_id=(select auth.uid())));
@@ -66,7 +70,7 @@ create policy fc_file_read on storage.objects for select to authenticated using(
 -- fails and must be re-evaluated against the latest archive.
 create function public.fc_commit_archive(
  p_actor uuid,p_household uuid,p_expected bigint,p_next jsonb,p_operation uuid,p_action text
-) returns jsonb language plpgsql security definer set search_path='' as $$
+) returns jsonb language plpgsql security invoker set search_path='' as $$
 declare r public.fc_archives%rowtype; prior bigint;
 begin
  if p_actor is null or p_household is null or p_operation is null or p_expected is null then
